@@ -597,7 +597,11 @@ def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFold
     # Now start using it
     if outputFolderName.strip() == "":
         outputFolderName = inputFile.replace(".yml", "")
-    folder = outputFolderBase + "/" + outputFolderName
+    #folder = outputFolderBase + "/" + outputFolderName
+    if os.path.isabs(outputFolderName):
+        folder = outputFolderName
+    else:
+        folder = os.path.join(outputFolderBase, outputFolderName)
     runner = GridRunner(grid, doOverwrite, folder, passThroughObj, fastSkip)
     runner.preprocess()
     if generatePage:

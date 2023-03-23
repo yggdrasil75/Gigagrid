@@ -130,6 +130,14 @@ def tryInit():
     registerMode("Prompt", GridSettingMode(dry=True, type="text", apply=applyField("prompt")))
     registerMode("Negative Prompt", GridSettingMode(dry=True, type="text", apply=applyField("negative_prompt")))
     registerMode("Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace2", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace3", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace4", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace5", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace6", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace7", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace8", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Prompt Replace9", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
     registerMode("Var Seed", GridSettingMode(dry=True, type="integer", apply=applyField("subseed")))
     registerMode("Var Strength", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=applyField("subseed_strength")))
     registerMode("ClipSkip", GridSettingMode(dry=False, type="integer", min=1, max=12, apply=applyClipSkip))
@@ -152,7 +160,7 @@ def tryInit():
     registerMode("HighRes Resize Width", GridSettingMode(dry=True, type="integer", apply=applyField("hr_resize_x")))
     registerMode("HighRes Resize Height", GridSettingMode(dry=True, type="integer", apply=applyField("hr_resize_y")))
     registerMode("HighRes Upscale to Width", GridSettingMode(dry=True, type="integer", apply=applyField("hr_upscale_to_x")))
-    registerMode("HighRes Upscale to Weight", GridSettingMode(dry=True, type="integer", apply=applyField("hr_upscale_to_y")))
+    registerMode("HighRes Upscale to Height", GridSettingMode(dry=True, type="integer", apply=applyField("hr_upscale_to_y")))
     registerMode("HighRes Upscaler", GridSettingMode(dry=True, type="text", apply=applyField("hr_upscaler"), valid_list=lambda: list(map(lambda u: u.name, shared.sd_upscalers)) + list(shared.latent_upscale_modes.keys())))
     registerMode("Image CFG Scale", GridSettingMode(dry=True, type="decimal", min=0, max=500, apply=applyField("image_cfg_scale")))
     registerMode("Use Result Index", GridSettingMode(dry=True, type="integer", min=0, max=500, apply=applyField("inf_grid_use_result_index")))
@@ -197,7 +205,9 @@ def a1111GridCallInitHook(gridCall):
     gridCall.replacements = list()
 
 def a1111GridCallParamAddHook(gridCall, p, v):
-    if cleanName(p) == "promptreplace":
+    tempstring = cleanNameautomatic101(p)
+    l1 = ['promptreplace','promptreplace1','promptreplace2','promptreplace3','promptreplace4','promptreplace5','promptreplace6','promptreplace7','promptreplace8','promptreplace9']
+    if tempstring in l1:
         gridCall.replacements.append(v)
         return True
     return False
