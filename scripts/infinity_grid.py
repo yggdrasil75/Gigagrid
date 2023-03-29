@@ -90,9 +90,23 @@ def applyPromptReplace(p, v):
         raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{v}'")
     match = val[0].strip()
     replace = val[1].strip()
-    if Script.VALIDATE_REPLACE and match not in p.prompt and match not in p.negative_prompt:
-        raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}' nor negative prompt '{p.negative_prompt}'")
+    if Script.VALIDATE_REPLACE:
+        if match not in p.prompt and match not in p.negative_prompt:
+            raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}' nor negative prompt '{p.negative_prompt}'")
     p.prompt = p.prompt.replace(match, replace)
+    ##p.negative_prompt = p.negative_prompt.replace(match, replace)
+    
+    
+def applyNegPromptReplace(p, v):
+    val = v.split('=', maxsplit=1)
+    if len(val) != 2:
+        raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{v}'")
+    match = val[0].strip()
+    replace = val[1].strip()
+    if Script.VALIDATE_REPLACE:
+        if match not in p.prompt and match not in p.negative_prompt:
+            raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}' nor negative prompt '{p.negative_prompt}'")
+    ##p.prompt = p.prompt.replace(match, replace)
     p.negative_prompt = p.negative_prompt.replace(match, replace)
 
 def applyEnsd(p, v):
@@ -205,7 +219,7 @@ def a1111GridCallInitHook(gridCall):
     gridCall.replacements = list()
 
 def a1111GridCallParamAddHook(gridCall, p, v):
-    tempstring = cleanNameautomatic101(p)
+    tempstring = cleanName(p)
     l1 = ['promptreplace','promptreplace1','promptreplace2','promptreplace3','promptreplace4','promptreplace5','promptreplace6','promptreplace7','promptreplace8','promptreplace9']
     if tempstring in l1:
         gridCall.replacements.append(v)
