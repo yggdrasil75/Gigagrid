@@ -8,6 +8,9 @@ import shutil
 import math
 import re
 import pathlib
+from modules import sd_models
+from modules.processing import StableDiffusionProcessing
+from modules.shared import opts
 from copy import copy
 from PIL import Image
 
@@ -18,6 +21,7 @@ EXTRA_FOOTER = "..."
 EXTRA_ASSETS = []
 validModes = {}
 IMAGES_CACHE = None
+modelchange = {}
 
 ######################### Hooks #########################
 
@@ -42,6 +46,10 @@ def cleanFilePath(fn: str):
     while '//' in fn:
         fn = fn.replace('//', '/')
     return fn
+
+def lateapplyModel(p, v):
+    opts.sd_model_checkpoint = getModelFor(v)
+    sd_models.reload_model_weights()
 
 def listImageFiles():
     global IMAGES_CACHE
@@ -381,12 +389,15 @@ class SingleGridCall:
         for name, val in self.params.items():
             mode = validModes[cleanName(name)]
             if not dry or mode.dry:
-                mode.apply(p, val)
+                if cleanName(name) == "model":
+                    modelchange[p] = val
+                else:
+                    mode.apply(p, val)
         if gridCallApplyHook is not None:
             gridCallApplyHook(self, p, dry)
 
 class GridRunner:
-    def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, p, fast_skip: bool):
+    def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, p: StableDiffusionProcessing, fast_skip: bool):
         self.grid = grid
         self.totalRun = 0
         self.totalSkip = 0
@@ -396,7 +407,7 @@ class GridRunner:
         self.fast_skip = fast_skip
         self.p = p
 
-    def buildValueSetList(self, axisList: list):
+    def buildValueSetList(self, axisList: list) -> list:
         result = list()
         if len(axisList) == 0:
             return result
@@ -432,26 +443,60 @@ class GridRunner:
                 stepCount = set.params.get("steps")
                 self.totalSteps += int(stepCount) if stepCount is not None else self.p.steps
         print(f"Skipped {self.totalSkip} files, will run {self.totalRun} files, for {self.totalSteps} total steps")
+        
 
     def run(self, dry: bool):
+        modelchange = {}
         if gridRunnerPreRunHook is not None:
             gridRunnerPreRunHook(self)
         iteration = 0
         last = None
+        prompt_batch_list = []
+        applied_sets = {}
         for set in self.valueSets:
             if set.doSkip:
                 continue
             iteration += 1
             if not dry:
                 print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
-            p = copy(self.p)
+            p2 = copy(self.p)
             if gridRunnerPreDryHook is not None:
                 gridRunnerPreDryHook(self)
-            set.applyTo(p, dry)
-            if dry:
-                continue
-            last = gridRunnerRunPostDryHook(self, p, set)
+            set.applyTo(p2, dry)
+            prompt_batch_list.append(p2)
+            applied_sets[p2] = applied_sets.get(p2, []) + [set]
+        prompt_batch_list = self.batch_prompts(prompt_batch_list, self.p)
+        if not dry:
+            for i, p2 in enumerate(prompt_batch_list):
+                #print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
+                if p2 in modelchange:
+                    lateapplyModel(p2,modelchange[p2])
+                if gridRunnerPreDryHook is not None:
+                    gridRunnerPreDryHook(self)
+                last = gridRunnerRunPostDryHook(self, p2, applied_sets[p2])
         return last
+    
+    def batch_prompts(self, prompt_list: list, p: StableDiffusionProcessing) -> list:
+        # Check if all non-sampler_name attributes are the same
+        prompt_attr = prompt_list[0]
+        if all(prompt.sampler_name == prompt_attr.sampler_name for prompt in prompt_list):
+            non_sampler_name_attrs = set((attr, getattr(p, attr)) for attr in dir(p) if attr != 'prompt' and attr != 'batch_size' and attr != 'sampler_name')
+            if all(getattr(p, attr) == getattr(prompt_list[0], attr) for attr, _ in non_sampler_name_attrs for p in prompt_list[1:]):
+                # Determine the number of prompts to merge
+                num_prompts = min(p.batch_size, len(prompt_list))
+                # Drop (num_prompts - 1) of every num_prompts prompts and keep only the one with merged prompts
+                merged_prompt = prompt_list[0]
+                merged_prompt.prompt = ' '.join([p.prompt for p in prompt_list[:num_prompts]])
+                applied_sets = {p: set_list for p, set_list in self.applied_sets.items() if p in prompt_list[:num_prompts]}
+                # Update batch size to the number of merged prompts
+                merged_prompt.batch_size = num_prompts
+                return [merged_prompt], applied_sets  # Return the merged prompt and the dictionary of applied sets
+        # If non-sampler_name attributes are not the same or there are less than batch_size prompts, return the original list
+        return prompt_list
+
+
+
+
 
 ######################### Web Data Builders #########################
 

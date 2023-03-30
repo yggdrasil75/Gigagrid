@@ -17,7 +17,7 @@ import numpy
 from copy import copy
 from datetime import datetime
 from modules import images, shared, sd_models, sd_vae, sd_samplers, scripts, processing, ui_components
-from modules.processing import process_images, Processed
+from modules.processing import StableDiffusionProcessing, process_images, Processed
 from modules.shared import opts
 from PIL import Image
 import gridgencore as core
@@ -244,24 +244,25 @@ def a1111GridRunnerPreDryHook(gridRunner):
     gridRunner.temp.oldVae = opts.sd_vae
     gridRunner.temp.oldModel = opts.sd_model_checkpoint
 
-def a1111GridRunnerPostDryHook(gridRunner, p, set):
+def a1111GridRunnerPostDryHook(gridRunner, p: StableDiffusionProcessing, appliedsets: dict) -> Processed:
     p.seed = processing.get_fixed_seed(p.seed)
     p.subseed = processing.get_fixed_seed(p.subseed)
     processed = process_images(p)
     if len(processed.images) < 1:
         raise RuntimeError(f"Something went wrong! Image gen '{set.data}' produced {len(processed.images)} images, which is wrong")
-    os.makedirs(os.path.dirname(set.filepath), exist_ok=True)
-    resultIndex = getattr(p, 'inf_grid_use_result_index', 0)
-    if resultIndex >= len(processed.images):
-        resultIndex = len(processed.images) - 1
-    img = processed.images[resultIndex]
-    if type(img) == numpy.ndarray:
-        img = Image.fromarray(img)
-    if hasattr(p, 'inf_grid_out_width') and hasattr(p, 'inf_grid_out_height'):
-        img = img.resize((p.inf_grid_out_width, p.inf_grid_out_height), resample=images.LANCZOS)
-    processed.images[resultIndex] = img
-    info = processing.create_infotext(p, [p.prompt], [p.seed], [p.subseed], [])
-    images.save_image(img, path=os.path.dirname(set.filepath), basename="", forced_filename=os.path.basename(set.filepath), save_to_dirs=False, info=info, extension=gridRunner.grid.format, p=p, prompt=p.prompt, seed=processed.seed)
+    for i, set in enumerate(appliedsets):
+        os.makedirs(os.path.dirname(set.filepath), exist_ok=True)
+    if len(processed.images) > 0:
+        for img in processed.images:
+            #img = processed.images[i]
+            if type(img) == numpy.ndarray:
+                img = Image.fromarray(img)
+            if hasattr(p, 'inf_grid_out_width') and hasattr(p, 'inf_grid_out_height'):
+                img = img.resize((p.inf_grid_out_width, p.inf_grid_out_height), resample=images.LANCZOS)
+            processed.images[i] = img
+            info = processing.create_infotext(p, [p.prompt], [p.seed], [p.subseed], [])
+            images.save_image(img, path=os.path.dirname(appliedsets[i].filepath), basename="", forced_filename=os.path.basename(set.filepath), 
+                            save_to_dirs=False, info=info, extension=gridRunner.grid.format, p=p, prompt=p.all_prompts[i], seed=processed.seed)
     opts.CLIP_stop_at_last_layers = gridRunner.temp.oldClipSkip
     opts.code_former_weight = gridRunner.temp.oldCodeformerWeight
     opts.face_restoration_model = gridRunner.temp.oldFaceRestorer
@@ -417,7 +418,7 @@ class Script(scripts.Script):
         # Clean up default params
         p = copy(p)
         p.n_iter = 1
-        p.batch_size = 1
+        #p.batch_size = 1
         p.do_not_save_samples = True
         p.do_not_save_grid = True
         p.seed = processing.get_fixed_seed(p.seed)
