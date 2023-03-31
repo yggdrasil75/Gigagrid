@@ -385,7 +385,7 @@ class SingleGridCall:
                 if gridCallParamAddHook is None or not gridCallParamAddHook(self, p, v):
                     self.params[p] = v
 
-    def applyTo(self, p, dry: bool):
+    def applyTo(self, p: StableDiffusionProcessing, dry: bool):
         for name, val in self.params.items():
             mode = validModes[cleanName(name)]
             if not dry or mode.dry:
@@ -397,7 +397,7 @@ class SingleGridCall:
             gridCallApplyHook(self, p, dry)
 
 class GridRunner:
-    def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, p: StableDiffusionProcessing, fast_skip: bool):
+    def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, promptskey: StableDiffusionProcessing, fast_skip: bool):
         self.grid = grid
         self.totalRun = 0
         self.totalSkip = 0
@@ -405,7 +405,7 @@ class GridRunner:
         self.doOverwrite = doOverwrite
         self.basePath = basePath
         self.fast_skip = fast_skip
-        self.p = p
+        self.promptskey = promptskey
 
     def buildValueSetList(self, axisList: list) -> list:
         result = list()
@@ -441,12 +441,10 @@ class GridRunner:
             else:
                 self.totalRun += 1
                 stepCount = set.params.get("steps")
-                self.totalSteps += int(stepCount) if stepCount is not None else self.p.steps
+                self.totalSteps += int(stepCount) if stepCount is not None else self.promptskey.steps
         print(f"Skipped {self.totalSkip} files, will run {self.totalRun} files, for {self.totalSteps} total steps")
-        
-
+    
     def run(self, dry: bool):
-        modelchange = {}
         if gridRunnerPreRunHook is not None:
             gridRunnerPreRunHook(self)
         iteration = 0
@@ -459,40 +457,58 @@ class GridRunner:
             iteration += 1
             if not dry:
                 print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
-            p2 = copy(self.p)
+            p2 = copy(self.promptskey)
             if gridRunnerPreDryHook is not None:
                 gridRunnerPreDryHook(self)
             set.applyTo(p2, dry)
             prompt_batch_list.append(p2)
             applied_sets[p2] = applied_sets.get(p2, []) + [set]
-        prompt_batch_list = self.batch_prompts(prompt_batch_list, self.p)
+        prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
         if not dry:
             for i, p2 in enumerate(prompt_batch_list):
                 #print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
-                if p2 in modelchange:
+                p2 = StableDiffusionProcessing(p2)
+                if p2 in modelchange.keys():
                     lateapplyModel(p2,modelchange[p2])
                 if gridRunnerPreDryHook is not None:
                     gridRunnerPreDryHook(self)
                 last = gridRunnerRunPostDryHook(self, p2, applied_sets[p2])
         return last
     
-    def batch_prompts(self, prompt_list: list, p: StableDiffusionProcessing) -> list:
-        # Check if all non-sampler_name attributes are the same
-        prompt_attr = prompt_list[0]
-        if all(prompt.sampler_name == prompt_attr.sampler_name for prompt in prompt_list):
-            non_sampler_name_attrs = set((attr, getattr(p, attr)) for attr in dir(p) if attr != 'prompt' and attr != 'batch_size' and attr != 'sampler_name')
-            if all(getattr(p, attr) == getattr(prompt_list[0], attr) for attr, _ in non_sampler_name_attrs for p in prompt_list[1:]):
-                # Determine the number of prompts to merge
-                num_prompts = min(p.batch_size, len(prompt_list))
-                # Drop (num_prompts - 1) of every num_prompts prompts and keep only the one with merged prompts
-                merged_prompt = prompt_list[0]
-                merged_prompt.prompt = ' '.join([p.prompt for p in prompt_list[:num_prompts]])
-                applied_sets = {p: set_list for p, set_list in self.applied_sets.items() if p in prompt_list[:num_prompts]}
-                # Update batch size to the number of merged prompts
-                merged_prompt.batch_size = num_prompts
-                return [merged_prompt], applied_sets  # Return the merged prompt and the dictionary of applied sets
-        # If non-sampler_name attributes are not the same or there are less than batch_size prompts, return the original list
-        return prompt_list
+    def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
+        # Group prompts by batch size
+        prompt_groups = {}
+        for prompt in prompt_list:
+            if prompt.batch_size not in prompt_groups:
+                prompt_groups[prompt.batch_size] = [prompt]
+            else:
+                prompt_groups[prompt.batch_size].append(prompt)
+
+        merged_prompts = []
+        applied_sets = {}
+
+        for batch_size, prompts in prompt_groups.items():
+            # Check if all non-prompt attributes are the same
+            prompt_attr = prompts[0]
+            if all(prompt.prompt == prompt_attr.prompt for prompt in prompts):
+                non_prompt_attrs = set((attr, getattr(Promptkey, attr)) for attr in dir(Promptkey) if attr != 'prompt' and attr != 'batch_size' and attr != 'sampler_name')
+                if all(getattr(p, attr) == getattr(prompt_attr, attr) for attr, _ in non_prompt_attrs for p in prompts[1:]):
+                    # Merge prompts and update batch size
+                    merged_prompt = prompt_attr
+                    merged_prompt.batch_size = len(prompts)
+                    merged_prompt.prompt = [p.prompt for p in prompts]
+                    merged_prompts.append(merged_prompt)
+                    # Add applied sets
+                    for prompt in prompts:
+                        applied_sets[prompt] = self.applied_sets.get(prompt, [])
+
+            else:
+                # Keep individual prompts if attributes are not the same
+                merged_prompts.extend(prompts)
+
+        return merged_prompts, applied_sets
+
+
 
 
 
