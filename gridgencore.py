@@ -481,18 +481,28 @@ class GridRunner:
     def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
         # Group prompts by batch size
         prompt_groups = {}
-        for prompt in prompt_list:
-            if prompt.batch_size not in prompt_groups:
-                prompt_groups[prompt.batch_size] = [prompt]
+        batchsize = Promptkey.batch_size
+        starto = 0
+        for i, prompt in enumerate(prompt_list):
+            print(f"processing prompt {i+1}/{len(prompt_list)} to add to groups")
+            if i % batchsize == 0:
+                prompt_group = {}
+                prompt_group[0] = [prompt]
+            elif i % batchsize == batchsize:
+                prompt_group[batchsize] = [prompt]
+                prompt_groups[starto] = prompt_group
+                starto = starto + 1
             else:
-                prompt_groups[prompt.batch_size].append(prompt)
-
+                prompt_group[i % batchsize] = prompt
+        print("added all to groups")
         merged_prompts = []
 
-        for batch_size, prompts in prompt_groups.items():
+        for iterator, prompts in prompt_groups.items():
+            print(f"merging prompts {i*batchsize} - {i*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
             # Check if all non-prompt attributes are the same
             prompt_attr = prompts[0]
-            if all(prompt.prompt == prompt_attr.prompt for prompt in prompts):
+            if all(getattr(p, attr) == getattr(prompt_attr, attr) for attr in dir(Promptkey) if attr != 'prompt' and hasattr(prompt_attr, attr) for p in prompts):
+            #if all(prompt.prompt == prompt_attr.prompt for prompt in prompts):
                 non_prompt_attrs = set((attr, getattr(Promptkey, attr)) for attr in dir(Promptkey) if attr != 'prompt' and attr != 'batch_size' and attr != 'sampler_name')
                 if all(getattr(p, attr) == getattr(prompt_attr, attr) for attr, _ in non_prompt_attrs for p in prompts[1:]):
                     # Merge prompts and update batch size
@@ -507,6 +517,11 @@ class GridRunner:
             else:
                 # Keep individual prompts if attributes are not the same
                 merged_prompts.extend(prompts)
+                print(f"Prompts with batch size {batchsize} cannot be batched due to differences in the following attributes:")
+                for attr, _ in non_prompt_attrs:
+                    if any(getattr(p, attr) != getattr(prompt_attr, attr) for p in prompts):
+                        values = ', '.join(str(getattr(p, attr)) for p in prompts)
+                        print(f"Attribute '{attr}' has different values: {values}")
 
         return merged_prompts
 

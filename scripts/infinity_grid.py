@@ -245,25 +245,34 @@ def a1111GridRunnerPreDryHook(gridRunner):
     gridRunner.temp.oldVae = opts.sd_vae
     gridRunner.temp.oldModel = opts.sd_model_checkpoint
 
-def a1111GridRunnerPostDryHook(gridRunner, p: StableDiffusionProcessing, appliedsets: dict) -> Processed:
-    p.seed = processing.get_fixed_seed(p.seed)
-    p.subseed = processing.get_fixed_seed(p.subseed)
-    processed = process_images(p)
+def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing, appliedsets: dict) -> Processed:
+    promptkey.seed = processing.get_fixed_seed(promptkey.seed)
+    promptkey.subseed = processing.get_fixed_seed(promptkey.subseed)
+    processed = process_images(promptkey)
     if len(processed.images) < 1:
         raise RuntimeError(f"Something went wrong! Image gen '{set.data}' produced {len(processed.images)} images, which is wrong")
-    for i, set in enumerate(appliedsets):
+    print(f"There are {len(processed.images)} images available in this set")
+    for iterator, set in enumerate(appliedsets):
         os.makedirs(os.path.dirname(set.filepath), exist_ok=True)
-    if len(processed.images) > 0:
-        for img in processed.images:
-            #img = processed.images[i]
-            if type(img) == numpy.ndarray:
-                img = Image.fromarray(img)
-            if hasattr(p, 'inf_grid_out_width') and hasattr(p, 'inf_grid_out_height'):
-                img = img.resize((p.inf_grid_out_width, p.inf_grid_out_height), resample=images.LANCZOS)
-            processed.images[i] = img
-            info = processing.create_infotext(p, [p.prompt], [p.seed], [p.subseed], [])
-            images.save_image(img, path=os.path.dirname(appliedsets[i].filepath), basename="", forced_filename=os.path.basename(set.filepath), 
-                            save_to_dirs=False, info=info, extension=gridRunner.grid.format, p=p, prompt=p.all_prompts[i], seed=processed.seed)
+    print(f"There are {len(appliedsets)} set applied")
+    for iterator, img in enumerate(processed.images):
+        print(f"currently saving {iterator} from current set")
+        #img = processed.images[iterator]
+        if iterator > len(list(appliedsets)) - 1: 
+            print("image not in sets")
+            continue
+        if len(promptkey.prompt) - 1 < iterator:
+            print("image not in prompt list")
+            continue
+        if type(img) == numpy.ndarray:
+            img = Image.fromarray(img)
+        if hasattr(promptkey, 'inf_grid_out_width') and hasattr(promptkey, 'inf_grid_out_height'):
+            img = img.resize((promptkey.inf_grid_out_width, promptkey.inf_grid_out_height), resample=images.LANCZOS)
+        processed.images[iterator] = img
+        info = processing.create_infotext(promptkey, [promptkey.prompt], [promptkey.seed], [promptkey.subseed], [])
+        images.save_image(img, path=os.path.dirname(list(appliedsets)[iterator].filepath), basename="", 
+                            forced_filename=os.path.basename(set.filepath), save_to_dirs=False, info=info, 
+                            extension=gridRunner.grid.format, p=promptkey, prompt=promptkey.prompt[iterator], seed=processed.seed)
     opts.CLIP_stop_at_last_layers = gridRunner.temp.oldClipSkip
     opts.code_former_weight = gridRunner.temp.oldCodeformerWeight
     opts.face_restoration_model = gridRunner.temp.oldFaceRestorer
