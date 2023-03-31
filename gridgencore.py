@@ -406,6 +406,7 @@ class GridRunner:
         self.basePath = basePath
         self.fast_skip = fast_skip
         self.promptskey = promptskey
+        self.applied_sets = {}
 
     def buildValueSetList(self, axisList: list) -> list:
         result = list()
@@ -450,7 +451,6 @@ class GridRunner:
         iteration = 0
         last = None
         prompt_batch_list = []
-        applied_sets = {}
         for set in self.valueSets:
             if set.doSkip:
                 continue
@@ -462,17 +462,18 @@ class GridRunner:
                 gridRunnerPreDryHook(self)
             set.applyTo(p2, dry)
             prompt_batch_list.append(p2)
-            applied_sets[p2] = applied_sets.get(p2, []) + [set]
+            #self.applied_sets.add()
+            self.applied_sets[p2] = self.applied_sets.get(p2, []) + [set]
         prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
         if not dry:
             for i, p2 in enumerate(prompt_batch_list):
                 #print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
-                p2 = StableDiffusionProcessing(p2)
+                #p2 = StableDiffusionProcessing(p2)
                 if p2 in modelchange.keys():
                     lateapplyModel(p2,modelchange[p2])
                 if gridRunnerPreDryHook is not None:
                     gridRunnerPreDryHook(self)
-                last = gridRunnerRunPostDryHook(self, p2, applied_sets[p2])
+                last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[p2])
         return last
     
     def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
@@ -485,7 +486,6 @@ class GridRunner:
                 prompt_groups[prompt.batch_size].append(prompt)
 
         merged_prompts = []
-        applied_sets = {}
 
         for batch_size, prompts in prompt_groups.items():
             # Check if all non-prompt attributes are the same
@@ -500,19 +500,13 @@ class GridRunner:
                     merged_prompts.append(merged_prompt)
                     # Add applied sets
                     for prompt in prompts:
-                        applied_sets[prompt] = self.applied_sets.get(prompt, [])
+                        self.applied_sets[merged_prompt] = self.applied_sets.get(prompt, [])
 
             else:
                 # Keep individual prompts if attributes are not the same
                 merged_prompts.extend(prompts)
 
-        return merged_prompts, applied_sets
-
-
-
-
-
-
+        return merged_prompts
 
 ######################### Web Data Builders #########################
 
