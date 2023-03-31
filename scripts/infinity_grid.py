@@ -126,6 +126,7 @@ def tryInit():
     if hasInited:
         return
     hasInited = True
+    core.getModelFor = getModelFor
     core.gridCallInitHook = a1111GridCallInitHook
     core.gridCallParamAddHook = a1111GridCallParamAddHook
     core.gridCallApplyHook = a1111GridCallApplyHook

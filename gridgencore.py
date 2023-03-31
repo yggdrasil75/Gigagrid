@@ -25,6 +25,8 @@ modelchange = {}
 
 ######################### Hooks #########################
 
+# hook(getmodelfor)
+getModelFor: callable = None
 # hook(SingleGridCall)
 gridCallInitHook: callable = None
 # hook(SingleGridCall, paramName: str, value: any) -> bool
