@@ -521,17 +521,19 @@ class GridRunner:
             else:
                 # Keep individual prompts if attributes are not the same
                 for prompt in prompts:
-                    prompt.batch_size = 1
-                merged_prompts.extend(prompts)
+                    if isinstance(prompt,StableDiffusionProcessing):
+                        prompt.batch_size = 1
                 print(f"Prompts with batch size {batchsize} cannot be batched due to differences in the following attributes:")
                 for attr, _ in non_prompt_attrs:
                     if not isinstance(attr,str):
                         #print(f"attribute name: {attr}, type: {type(attr)}")
                         continue
+                    print(prompts[0].__dict__.items() ^ prompts[1].__dict__.items())
                     #print(f"attribute name: {attr}, type: {type(attr)} value: {', '.join(str(getattr(p, attr)) for p in prompts if hasattr(p,attr))}")
-                    if any(getattr(p, attr) != getattr(prompt_attr, attr) for p in prompts):
-                        values = ', '.join(str(getattr(p, attr)) for p in prompts)
-                        print(f"Attribute '{attr}' has different values: {values}")
+                    #if any(getattr(p, attr) != getattr(prompt_attr, attr) for p in prompts):
+                    #    values = ', '.join(str(getattr(p, attr)) for p in prompts)
+                    #    print(f"Attribute '{attr}' has different values: {values}")
+            merged_prompts.extend(prompts)
 
         return merged_prompts
 
