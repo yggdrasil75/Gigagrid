@@ -531,7 +531,7 @@ class GridRunner:
                         #print(f"attribute name: {attr}, type: {type(attr)}")
                         continue
                     #print(prompts[0].__dict__.items() ^ prompts[1].__dict__.items())
-                    print(f"attribute name: {attr}, type: {type(getattr(prompts[0], attr))} value: {', '.join(str(getattr(p, attr)) for p in prompts if hasattr(p,attr))}")
+                    print(f"attribute name: {attr}, type: {', '.join(type(getattr(p, attr)) for p in prompts if hasattr(p,attr))} value: {', '.join(str(getattr(p, attr)) for p in prompts if hasattr(p,attr))}")
                     if any(getattr(p, attr) != getattr(prompt_attr, attr) for p in prompts):
                         values = ', '.join(str(getattr(p, attr)) for p in prompts)
                         print(f"Attribute '{attr}' has different values: {values}")
