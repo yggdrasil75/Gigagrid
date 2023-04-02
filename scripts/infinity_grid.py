@@ -261,6 +261,7 @@ def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing,
         if iterator > len(list(appliedsets)) - 1: 
             print("image not in sets")
             continue
+        set = list(appliedsets)[iterator]
         if len(promptkey.prompt) - 1 < iterator:
             print("image not in prompt list")
             continue
@@ -270,7 +271,8 @@ def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing,
             img = img.resize((promptkey.inf_grid_out_width, promptkey.inf_grid_out_height), resample=images.LANCZOS)
         processed.images[iterator] = img
         info = processing.create_infotext(promptkey, [promptkey.prompt], [promptkey.seed], [promptkey.subseed], [])
-        images.save_image(img, path=os.path.dirname(list(appliedsets)[iterator].filepath), basename="", 
+        print(f"saving to: {os.path.dirname(set.filepath)}\\{os.path.basename(set.filepath)}")
+        images.save_image(img, path=os.path.dirname(set.filepath), basename="", 
                             forced_filename=os.path.basename(set.filepath), save_to_dirs=False, info=info, 
                             extension=gridRunner.grid.format, p=promptkey, prompt=promptkey.prompt[iterator], seed=processed.seed)
     opts.CLIP_stop_at_last_layers = gridRunner.temp.oldClipSkip

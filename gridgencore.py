@@ -482,7 +482,7 @@ class GridRunner:
     def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
         # Group prompts by batch size
         prompt_groups = {}
-        prompt_group = {}
+        prompt_group = []
         batchsize = Promptkey.batch_size
         starto = 0
         for i, prompt in enumerate(prompt_list):
@@ -490,43 +490,57 @@ class GridRunner:
                 if prompt_group:
                     prompt_groups[starto] = prompt_group
                     starto += 1
-                    prompt_group = {}
-                prompt_group[0] = [prompt]
+                    prompt_group = []
+                prompt_group.append(prompt)
             else:
-                prompt_group[i % batchsize] = prompt
+                prompt_group.append(prompt)
         if prompt_group:
             prompt_groups[starto] = prompt_group
         print("added all to groups")
         merged_prompts = []
         print(f"there are {len(prompt_groups)} groups after grouping. merging now")
         for iterator, promptsasdf in enumerate(prompt_groups):
+            #print(iterator)
             prompts = prompt_groups[iterator]
-            print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
-            # Check if all non-prompt attributes are the same
-            prompt_attr = prompts[0]
-            fail = False
-            for tempprompt in prompts:
-                if not all(hasattr(tempprompt2, attr) for tempprompt2 in prompts for attr in dir(tempprompt)):
-                    fail = True
-                    print(f"prompt does not contain {str(attr)} can not merge")
-                    break
-                for attr in dir(tempprompt):
-                    if attr.startswith("__"): continue
-                    if callable(getattr(tempprompt, attr)): continue
-                    if isinstance(getattr(tempprompt, attr, None), types.BuiltinFunctionType) or isinstance(getattr(tempprompt, attr, None), types.BuiltinMethodType): continue
-                    if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'all_seeds', 'batch_size', 'all_subseeds', '__doc__']: continue
-                    if getattr(tempprompt, attr) == getattr(prompt_attr, attr): continue
-                    else: 
+            if isinstance(prompts, StableDiffusionProcessing): 
+                #print("object is processing object")
+                fail = True
+            else:
+                fail = False
+                #print(prompts)
+                print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
+                # Check if all non-prompt attributes are the same
+                prompt_attr = prompts[0]
+
+                for tempprompt in prompts:
+                    #print(tempprompt)
+                    if not all(hasattr(tempprompt2, attr) for tempprompt2 in prompts for attr in dir(tempprompt)):
                         fail = True
-                        print(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}")
+                        print(f"prompt does not contain {str(attr)} can not merge")
                         break
+                    for attr in dir(tempprompt):
+                        if attr.startswith("__"): continue
+                        if callable(getattr(tempprompt, attr)): continue
+                        if isinstance(getattr(tempprompt, attr, None), types.BuiltinFunctionType) or isinstance(getattr(tempprompt, attr, None), types.BuiltinMethodType): continue
+                        if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'all_seeds', 'batch_size', 'all_subseeds', '__doc__']: continue
+                        try:
+                            if getattr(tempprompt, attr) == getattr(prompt_attr, attr): continue
+                            else: 
+                                fail = True
+                                print(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}")
+                                break
+                        except AttributeError:
+                            print(tempprompt)
+                            print(prompt_attr)
+                            raise
             if not fail:
                 merged_prompt = prompt_attr
                 merged_prompt.prompt = [p.prompt for p in prompts]
                 merged_prompts.append(merged_prompt)
                 # Add applied sets
                 for prompt in prompts:
-                    self.applied_sets[merged_prompt] = self.applied_sets.get(prompt, [])
+                    self.applied_sets[merged_prompt] += self.applied_sets.get(prompt, [])
+                print("merged")
 
             if fail:
                 #tempprompt.batch_size = 1
