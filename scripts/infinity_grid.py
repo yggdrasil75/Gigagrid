@@ -256,27 +256,25 @@ def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing,
         os.makedirs(os.path.dirname(set.filepath), exist_ok=True)
     print(f"There are {len(appliedsets)} set applied")
     for iterator, img in enumerate(processed.images):
-        if len(processed.images) > len(list(appliedsets)): iterator2 = iterator + 1
-        else: iterator2 = iterator
         print(f"currently saving image {iterator} from current set")
         #img = processed.images[iterator]
-        if iterator2 > len(list(appliedsets)) - 1: 
+        if iterator > len(list(appliedsets)) - 1: 
             print("image not in sets")
             continue
-        set = list(appliedsets)[iterator2]
-        if len(promptkey.prompt) - 1 < iterator2:
+        set = list(appliedsets)[iterator]
+        if len(promptkey.prompt) - 1 < iterator:
             print("image not in prompt list")
             continue
         if type(img) == numpy.ndarray:
             img = Image.fromarray(img)
         if hasattr(promptkey, 'inf_grid_out_width') and hasattr(promptkey, 'inf_grid_out_height'):
             img = img.resize((promptkey.inf_grid_out_width, promptkey.inf_grid_out_height), resample=images.LANCZOS)
-        processed.images[iterator2] = img
+        processed.images[iterator] = img
         info = processing.create_infotext(promptkey, [promptkey.prompt], [promptkey.seed], [promptkey.subseed], [])
         print(f"saving to: {os.path.dirname(set.filepath)}\\{os.path.basename(set.filepath)}")
         images.save_image(img, path=os.path.dirname(set.filepath), basename="", 
                             forced_filename=os.path.basename(set.filepath), save_to_dirs=False, info=info, 
-                            extension=gridRunner.grid.format, p=promptkey, prompt=promptkey.prompt[iterator2], seed=processed.seed)
+                            extension=gridRunner.grid.format, p=promptkey, prompt=promptkey.prompt[iterator], seed=processed.seed)
     opts.CLIP_stop_at_last_layers = gridRunner.temp.oldClipSkip
     opts.code_former_weight = gridRunner.temp.oldCodeformerWeight
     opts.face_restoration_model = gridRunner.temp.oldFaceRestorer
