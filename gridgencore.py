@@ -539,6 +539,10 @@ class GridRunner:
                 merged_prompts.append(merged_prompt)
                 # Add applied sets
                 for prompt in prompts:
+                    setup2 = self.applied_sets.get(prompt, [])
+                    #print(setup2)
+                    merged_filepaths = [setup.filepath for setup in self.applied_sets[merged_prompt]]
+                    if any(setall.filepath in merged_filepaths for setall in setup2): continue
                     if self.applied_sets.get(prompt, []) in self.applied_sets[merged_prompt]: continue
                     self.applied_sets[merged_prompt] += self.applied_sets.get(prompt, [])
                 print("merged")
