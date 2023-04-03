@@ -540,7 +540,13 @@ class GridRunner:
                 # Add applied sets
                 for prompt in prompts:
                     self.applied_sets[merged_prompt] += self.applied_sets.get(prompt, [])
-                self.applied_sets[merged_prompt] = list(set(self.applied_sets[merged_prompt]))
+                seen = set()
+                unique_applied_sets = []
+                for set_item in self.applied_sets:
+                    if set_item not in seen:
+                        seen.add(set_item)
+                        unique_applied_sets.append(set_item)
+                self.applied_sets[merged_prompt] = unique_applied_sets
                 print("merged")
 
             if fail:
