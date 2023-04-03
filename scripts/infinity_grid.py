@@ -118,6 +118,10 @@ def applyEnableHr(p, v):
         if p.denoising_strength is None:
             p.denoising_strength = 0.75
 
+def applybatch(p,v):
+    p.batch_size = v
+
+
 ######################### Addons #########################
 hasInited = False
 
@@ -134,6 +138,7 @@ def tryInit():
     core.gridRunnerPreDryHook = a1111GridRunnerPreDryHook
     core.gridRunnerRunPostDryHook = a1111GridRunnerPostDryHook
     core.webDataGetBaseParamData = a1111WebDataGetBaseParamData
+    registerMode("batch size", GridSettingMode(dry=True, type="integer", apply=applyField("batch_size")))
     registerMode("Model", GridSettingMode(dry=False, type="text", apply=applyModel, clean=cleanModel, valid_list=lambda: list(map(lambda m: m.title, sd_models.checkpoints_list.values()))))
     registerMode("VAE", GridSettingMode(dry=False, type="text", apply=applyVae, clean=cleanVae, valid_list=lambda: list(sd_vae.vae_dict.keys()) + ['none', 'auto', 'automatic']))
     registerMode("Sampler", GridSettingMode(dry=True, type="text", apply=applyField("sampler_name"), valid_list=lambda: list(sd_samplers.all_samplers_map.keys())))
@@ -256,7 +261,7 @@ def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing,
         os.makedirs(os.path.dirname(set.filepath), exist_ok=True)
     print(f"There are {len(appliedsets)} set applied")
     for iterator, img in enumerate(processed.images):
-        print(f"currently saving image {iterator} from current set")
+        print(f"currently saving image {iterator + 1} from current set")
         #img = processed.images[iterator]
         if iterator > len(list(appliedsets)) - 1: 
             print("image not in sets")

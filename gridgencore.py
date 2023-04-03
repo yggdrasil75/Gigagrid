@@ -10,6 +10,8 @@ import re
 import pathlib
 from modules import sd_models
 from modules.processing import StableDiffusionProcessing
+from modules.processing import StableDiffusionProcessingTxt2Img
+from modules.processing import StableDiffusionProcessingImg2Img
 from modules.shared import opts
 from copy import copy
 from PIL import Image
@@ -485,9 +487,20 @@ class GridRunner:
         prompt_group = []
         batchsize = Promptkey.batch_size
         starto = 0
-        for i, prompt in enumerate(prompt_list):
-            if i % batchsize == 0:
+        for i in range(len(prompt_list)):
+            prompt = prompt_list[i]
+            if i > 0:
+                prompt2 = prompt_list[i - 1]
+            else: prompt2 = prompt
+            if prompt in modelchange and prompt != prompt2 and prompt2 in modelchange and modelchange[prompt] != modelchange[prompt2]:
+                print("model changing section")
+                prompt_groups[starto] = prompt
+                starto += 1
+            elif i % batchsize == 0:
+                batchsize = prompt.batch_size
+                print(f"creating group of size: {batchsize}")
                 if prompt_group:
+                    #print(type(prompt_group))
                     prompt_groups[starto] = prompt_group
                     starto += 1
                     prompt_group = []
@@ -499,22 +512,21 @@ class GridRunner:
         print("added all to groups")
         merged_prompts = []
         print(f"there are {len(prompt_groups)} groups after grouping. merging now")
-        for iterator, promptsasdf in enumerate(prompt_groups):
-            #print(iterator)
-            prompts = prompt_groups[iterator]
-            if isinstance(prompts, StableDiffusionProcessing): 
-                #print("object is processing object")
+        for iterator, promgroup in enumerate(prompt_groups):
+            promgroup = prompt_groups[iterator]
+            print(type(promgroup))
+            if isinstance(promgroup, StableDiffusionProcessing) or isinstance(promgroup, int):
+                print("object is processing object")
                 fail = True
             else:
                 fail = False
-                #print(prompts)
-                print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
-                # Check if all non-prompt attributes are the same
-                prompt_attr = prompts[0]
+                prompt_attr = promgroup[0]
+                batchsize = prompt_attr.batch_size
+                #print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
 
-                for tempprompt in prompts:
+                for tempprompt in promgroup:
                     #print(tempprompt)
-                    if not all(hasattr(tempprompt2, attr) for tempprompt2 in prompts for attr in dir(tempprompt)):
+                    if not all(hasattr(tempprompt2, attr) for tempprompt2 in promgroup for attr in dir(tempprompt)):
                         fail = True
                         print(f"prompt does not contain {str(attr)} can not merge")
                         break
@@ -535,10 +547,10 @@ class GridRunner:
                             raise
             if not fail:
                 merged_prompt = prompt_attr
-                merged_prompt.prompt = [p.prompt for p in prompts]
+                merged_prompt.prompt = [p.prompt for p in promgroup]
                 merged_prompts.append(merged_prompt)
                 # Add applied sets
-                for prompt in prompts:
+                for prompt in promgroup:
                     setup2 = self.applied_sets.get(prompt, [])
                     #print(setup2)
                     merged_filepaths = [setup.filepath for setup in self.applied_sets[merged_prompt]]
@@ -547,11 +559,15 @@ class GridRunner:
                     self.applied_sets[merged_prompt] += self.applied_sets.get(prompt, [])
                 print("merged")
 
-            if fail:
-                #tempprompt.batch_size = 1
-                #for it, prompt in prompts:
-                #    prompt.batch_size = 1
-                merged_prompts.extend(prompts)
+            if fail and (isinstance(promgroup, StableDiffusionProcessingTxt2Img) or isinstance(promgroup, StableDiffusionProcessing) or isinstance(promgroup, StableDiffusionProcessingImg2Img)):
+                promgroup.batch_size = 1
+                merged_prompts.append(promgroup)
+            elif fail and (isinstance(promgroup, int)):
+                continue
+            elif fail:
+                for prompt in promgroup:
+                    prompt.batch_size = 1
+                merged_prompts.extend(promgroup)
 
         return merged_prompts
 
