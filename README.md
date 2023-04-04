@@ -1,3 +1,10 @@
+# This Fork
+
+This fork adds the following:
+Full path specification (if you put f:\path\to\whatever then the output will be there, instead of automatic\grids\whatever)
+
+batching: batch size is optional as either yaml or via gui. the yaml will override the gui as normal. key is "batch size". you can run it with more than the gui batch size (I run it at 10 for my 512x512. on a better card you could do 20 possibly)
+
 # Stable Diffusion Infinity Grid Generator
 
 ![img](github/megagrid_ref.png)
