@@ -478,7 +478,11 @@ class GridRunner:
                     lateapplyModel(p2,modelchange[p2])
                 if gridRunnerPreDryHook is not None:
                     gridRunnerPreDryHook(self)
-                last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[p2])
+                try:
+                    last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[p2])
+                except: 
+                    print("image failed to generate. please restart later")
+                    continue
         return last
     
     def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
@@ -534,7 +538,7 @@ class GridRunner:
                         if attr.startswith("__"): continue
                         if callable(getattr(tempprompt, attr)): continue
                         if isinstance(getattr(tempprompt, attr, None), types.BuiltinFunctionType) or isinstance(getattr(tempprompt, attr, None), types.BuiltinMethodType): continue
-                        if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'all_seeds', 'batch_size', 'all_subseeds', '__doc__']: continue
+                        if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'all_seeds', 'all_subseeds']: continue
                         try:
                             if getattr(tempprompt, attr) == getattr(prompt_attr, attr): continue
                             else: 
