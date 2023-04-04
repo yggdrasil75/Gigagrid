@@ -497,6 +497,8 @@ class GridRunner:
                 prompt2 = prompt_list[i - 1]
             else: prompt2 = prompt
             if prompt in modelchange and prompt != prompt2 and prompt2 in modelchange and modelchange[prompt] != modelchange[prompt2]:
+                prompt_groups[starto] = prompt_group
+                starto += 1
                 print("model changing section")
                 prompt_groups[starto] = prompt
                 starto += 1
@@ -518,7 +520,7 @@ class GridRunner:
         print(f"there are {len(prompt_groups)} groups after grouping. merging now")
         for iterator, promgroup in enumerate(prompt_groups):
             promgroup = prompt_groups[iterator]
-            print(type(promgroup))
+            #print(type(promgroup))
             if isinstance(promgroup, StableDiffusionProcessing) or isinstance(promgroup, int):
                 print("object is processing object")
                 fail = True
@@ -561,7 +563,7 @@ class GridRunner:
                     if any(setall.filepath in merged_filepaths for setall in setup2): continue
                     if self.applied_sets.get(prompt, []) in self.applied_sets[merged_prompt]: continue
                     self.applied_sets[merged_prompt] += self.applied_sets.get(prompt, [])
-                print("merged")
+                #print("merged")
 
             if fail and (isinstance(promgroup, StableDiffusionProcessingTxt2Img) or isinstance(promgroup, StableDiffusionProcessing) or isinstance(promgroup, StableDiffusionProcessingImg2Img)):
                 promgroup.batch_size = 1

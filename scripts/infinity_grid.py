@@ -254,7 +254,7 @@ def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing,
     #promptkey.seed = processing.get_fixed_seed(promptkey.seed)
     #promptkey.subseed = processing.get_fixed_seed(promptkey.subseed)
     processed = process_images(promptkey)
-    print(process_images)
+    #print(process_images)
     if len(processed.images) < 1:
         raise RuntimeError(f"Something went wrong! Image gen '{set.data}' produced {len(processed.images)} images, which is wrong")
     print(f"There are {len(processed.images)} images available in this set")
