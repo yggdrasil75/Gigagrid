@@ -533,8 +533,9 @@ class GridRunner:
                 batchsize = prompt_attr.batch_size
                 print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
 
-                for tempprompt in promgroup:
+                for it, tempprompt in enumerate(promgroup):
                     #print(tempprompt)
+                    
                     if not all(hasattr(tempprompt2, attr) for tempprompt2 in promgroup for attr in dir(tempprompt)):
                         fail = True
                         print(f"prompt does not contain {str(attr)} can not merge")
@@ -548,6 +549,7 @@ class GridRunner:
                             if getattr(tempprompt, attr) == getattr(prompt_attr, attr): continue
                             else: 
                                 fail = True
+                                if it == 1: print(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempprompt, attr))}")
                                 print(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}")
                                 break
                         except AttributeError:
