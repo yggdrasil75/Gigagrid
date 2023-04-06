@@ -8,6 +8,8 @@ batching: batch size is optional as either yaml or via gui. the yaml will overri
 
 numeric prompt replace: you can use "prompt replace 1" up to "prompt replace 9" as keys (with spaces) to make it easier to specify the various prompt replaces. now you can organize them more naturally.
 
+Negative Prompt Replace: you can use "n prompt replace" or "negative prompt replace" (with negative allowing 1-9 similar to normal. n being the lazier option I didnt add numbers to)
+
 # Stable Diffusion Infinity Grid Generator
 
 ![img](github/megagrid_ref.png)
