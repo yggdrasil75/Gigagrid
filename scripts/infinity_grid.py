@@ -96,7 +96,6 @@ def applyPromptReplace(p, v):
     p.prompt = p.prompt.replace(match, replace)
     ##p.negative_prompt = p.negative_prompt.replace(match, replace)
     
-    
 def applyNegPromptReplace(p, v):
     val = v.split('=', maxsplit=1)
     if len(val) != 2:
@@ -150,25 +149,12 @@ def tryInit():
     registerMode("Prompt", GridSettingMode(dry=True, type="text", apply=applyField("prompt")))
     registerMode("Negative Prompt", GridSettingMode(dry=True, type="text", apply=applyField("negative_prompt")))
     registerMode("Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace2", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace3", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace4", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace5", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace6", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace7", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace8", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
-    registerMode("Prompt Replace9", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
     registerMode("Negative Prompt Replace", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace1", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace2", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace3", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace4", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace5", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace6", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace7", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace8", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
-    registerMode("Negative Prompt Replace9", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
     registerMode("N Prompt Replace", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    for i in range(1, 10):
+        registerMode(f"Prompt Replace{i}", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+        registerMode(f"Negative Prompt Replace{i}", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+        registerMode(f"N Prompt Replace{i}", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
     registerMode("Var Seed", GridSettingMode(dry=True, type="integer", apply=applyField("subseed")))
     registerMode("Var Strength", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=applyField("subseed_strength")))
     registerMode("ClipSkip", GridSettingMode(dry=False, type="integer", min=1, max=12, apply=applyClipSkip))
