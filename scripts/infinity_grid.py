@@ -158,6 +158,17 @@ def tryInit():
     registerMode("Prompt Replace7", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
     registerMode("Prompt Replace8", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
     registerMode("Prompt Replace9", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
+    registerMode("Negative Prompt Replace", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace1", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace2", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace3", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace4", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace5", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace6", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace7", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace8", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("Negative Prompt Replace9", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
+    registerMode("N Prompt Replace", GridSettingMode(dry=True, type="string", apply=applyNegPromptReplace))
     registerMode("Var Seed", GridSettingMode(dry=True, type="integer", apply=applyField("subseed")))
     registerMode("Var Strength", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=applyField("subseed_strength")))
     registerMode("ClipSkip", GridSettingMode(dry=False, type="integer", min=1, max=12, apply=applyClipSkip))
@@ -223,6 +234,7 @@ def tryInit():
 
 def a1111GridCallInitHook(gridCall):
     gridCall.replacements = list()
+    gridCall.nreplacements = list()
 
 def a1111GridCallParamAddHook(gridCall, p, v):
     tempstring = cleanName(p)
@@ -232,9 +244,19 @@ def a1111GridCallParamAddHook(gridCall, p, v):
         return True
     return False
 
+def a1111GridCallParamAddHookNeg(gridcall, p, v):
+    tempstring = cleanName(p)
+    l2 = ['negativepromptreplace','negativepromptreplace1','negativepromptreplace2','negativepromptreplace3','negativepromptreplace4','negativepromptreplace5','negativepromptreplace6','negativepromptreplace7','negativepromptreplace8','negativepromptreplace9', 'npromptreplace']
+    if tempstring in l2:
+        gridcall.nreplacements.append(v)
+        return True
+    return False
+
 def a1111GridCallApplyHook(gridCall, p, dry):
     for replace in gridCall.replacements:
         applyPromptReplace(p, replace)
+    for nreplace in gridCall.nreplacements:
+        applyNegPromptReplace(p,nreplace)
     
 def a1111GridRunnerPreRunHook(gridRunner):
     shared.total_tqdm.updateTotal(gridRunner.totalSteps)
