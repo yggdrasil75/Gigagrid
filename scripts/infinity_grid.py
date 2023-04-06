@@ -251,8 +251,8 @@ def a1111GridRunnerPreDryHook(gridRunner):
     gridRunner.temp.oldModel = opts.sd_model_checkpoint
 
 def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing, appliedsets: dict) -> Processed:
-    #promptkey.seed = processing.get_fixed_seed(promptkey.seed)
-    #promptkey.subseed = processing.get_fixed_seed(promptkey.subseed)
+    promptkey.seed = processing.get_fixed_seed(promptkey.seed)
+    promptkey.subseed = processing.get_fixed_seed(promptkey.subseed)
     processed = process_images(promptkey)
     #print(process_images)
     if len(processed.images) < 1:

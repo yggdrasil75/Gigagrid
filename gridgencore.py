@@ -543,7 +543,7 @@ class GridRunner:
                         if attr.startswith("__"): continue
                         if callable(getattr(tempprompt, attr)): continue
                         if isinstance(getattr(tempprompt, attr, None), types.BuiltinFunctionType) or isinstance(getattr(tempprompt, attr, None), types.BuiltinMethodType): continue
-                        if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'all_seeds', 'all_subseeds']: continue
+                        if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'seed', 'subseed']: continue
                         try:
                             if getattr(tempprompt, attr) == getattr(prompt_attr, attr): continue
                             else: 
@@ -557,6 +557,9 @@ class GridRunner:
             if not fail:
                 merged_prompt = prompt_attr
                 merged_prompt.prompt = [p.prompt for p in promgroup]
+                merged_prompt.negative_prompt = [p.negative_prompt for p in promgroup]
+                merged_prompt.seed = [p.seed for p in promgroup]
+                merged_prompt.subseed = [p.subseed for p in promgroup]
                 merged_prompts.append(merged_prompt)
                 # Add applied sets
                 for prompt in promgroup:
