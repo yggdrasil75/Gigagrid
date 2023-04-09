@@ -1,0 +1,112 @@
+{
+    "models": [
+        {
+            "brand": "nvidia",
+            "architectures": [
+                {
+                    "lovelace": [
+                        {
+                            "minram": 20,
+                            "size": 24
+                        },
+                        {
+                            "minram": 10,
+                            "maxram": 14,
+                            "size": 16
+                        },
+                        {
+                            "minram": 14,
+                            "maxram": 20,
+                            "size": 20
+                        }
+                    ]
+                },
+                {
+                    "volta": [
+                        {
+                            "minram": 20,
+                            "size": 12
+                        },
+                        {
+                            "maxram": 20,
+                            "size": 8
+                        }
+                    ]
+                },
+                {
+                    "ampere": [
+                        {
+                            "minram": 20,
+                            "size": 12
+                        },
+                        {
+                            "minram": 16,
+                            "maxram": 20,
+                            "size": 8
+                        },
+                        {
+                            "minram": 12,
+                            "maxram": 16,
+                            "size": 6
+                        },
+                        {
+                            "minram": 4,
+                            "maxram": 8,
+                            "size": 2
+                        },
+                        {
+                            "minram": 8,
+                            "maxram": 12,
+                            "size": 4
+                        }
+                    ]
+                },
+                {
+                    "turing": [
+                        {
+                            "minram": 4,
+                            "maxram": 7,
+                            "size": 4
+                        },
+                        {
+                            "minram": 7,
+                            "maxram": 12,
+                            "size": 8
+                        }
+                    ]
+                },
+                {
+                    "pascal": [
+                        {
+                            "maxram": 4,
+                            "size": 1
+                        },
+                        {
+                            "minram": 4,
+                            "maxram": 8,
+                            "size": 2
+                        },
+                        {
+                            "minram": 8,
+                            "maxram": 16,
+                            "size": 6
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "brand": "intel",
+            "architectures": [
+                {
+                    "arc": [
+                        {
+                            "minram": 10,
+                            "size": 4
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

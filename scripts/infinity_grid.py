@@ -14,6 +14,7 @@
 import gradio as gr
 import os
 import numpy
+import ctypes
 from copy import copy
 from datetime import datetime
 from modules import images, shared, sd_models, sd_vae, sd_samplers, scripts, processing, ui_components
@@ -22,6 +23,8 @@ from modules.shared import opts
 from PIL import Image
 import gridgencore as core
 from gridgencore import cleanName, getBestInList, chooseBetterFileName, GridSettingMode, fixNum, applyField, registerMode
+import json
+import torch
 
 ######################### Constants #########################
 refresh_symbol = '\U0001f504'  # 🔄
@@ -117,8 +120,124 @@ def applyEnableHr(p, v):
         if p.denoising_strength is None:
             p.denoising_strength = 0.75
 
-def applybatch(p,v):
-    p.batch_size = v
+def randomizepostpre(p,v):
+    if v == "bymodel":
+        p.randomtime = "bymodel"
+    elif v == "always":
+        p.randomtime = "constant"
+        
+SEMVER_TO_ARCH = {
+    (1, 0): 'tesla',
+    (1, 1): 'tesla',
+    (1, 2): 'tesla',
+    (1, 3): 'tesla',
+
+    (2, 0): 'fermi',
+    (2, 1): 'fermi',
+
+    (3, 0): 'kepler',
+    (3, 2): 'kepler',
+    (3, 5): 'kepler',
+    (3, 7): 'kepler',
+
+    (5, 0): 'maxwell',
+    (5, 2): 'maxwell',
+    (5, 3): 'maxwell',
+
+    (6, 0): 'pascal',
+    (6, 1): 'pascal',
+    (6, 2): 'pascal',
+
+    (7, 0): 'volta',
+    (7, 2): 'volta',
+
+    (7, 5): 'turing',
+
+    (8, 0): 'ampere',
+    (8, 6): 'ampere',
+}
+
+def getarch() -> str:
+    libnames = ('libcuda.so', 'libcuda.dylib', 'cuda.dll')
+    for libname in libnames:
+        try:
+            cuda = ctypes.CDLL(libname)
+        except OSError:
+            continue
+        else:
+            break
+    else:
+        return "unknown"
+    cc_major = ctypes.c_int()
+    cc_minor = ctypes.c_int()
+
+    return SEMVER_TO_ARCH.get((cc_major.value, cc_minor.value), 'unknown')
+        
+
+def setbatch(p, v):
+    # Load the model information from the JSON file
+    # Get the absolute path of the directory in which the script is running
+    dir_path = os.path.abspath(os.path.dirname(__file__))
+    print(dir_path)
+    # Load the JSON file from the current directory
+    with open(os.path.join(dir_path, 'models.json')) as f:
+        models_data = json.load(f)
+
+    # Get the GPU information
+    gpu = torch.cuda.get_device_name(torch.cuda.current_device)
+    #print(gpu)
+    architecture = getarch()
+    #print(architecture)
+    ram = torch.cuda.get_device_properties(torch.cuda.current_device).total_memory / 1024**3  # Convert to GB
+
+    if v == 'bytype':
+        # Search the models list for a matching brand and architecture
+        for model in models_data['models']:
+            if model['brand'].lower() == gpu.split()[0].lower():
+                for arch in model['architectures']:
+                    if architecture in arch:
+                        # Check the RAM ranges for the current architecture
+                        for ram_range in arch[gpu.split()[1].lower()]:
+                            if 'minram' in ram_range and ram < ram_range['minram']:
+                                continue
+                            if 'maxram' in ram_range and ram > ram_range['maxram']:
+                                continue
+                            
+                            # Set the batch size based on the RAM range for the architecture
+                            batch_size = ram_range['size']
+                            break
+                        else:
+                            # No matching RAM range found, default to batch size of 1
+                            batch_size = 1
+                        break
+                else:
+                    # No matching architecture found, default to batch size of 1
+                    batch_size = 1
+                break
+        else:
+            # No matching brand found, default to batch size of 1
+            batch_size = 1
+
+    elif v.startswith('byid'):
+        # Parse the byid values from the input string
+        id_values = {}
+        for value in v.split('|')[1:]:
+            id, size = value.split('=')
+            id_values[int(id)] = int(size)
+        
+        # Set the batch size based on the GPU ID
+        gpu_id = torch.cuda.current_device()
+        if gpu_id in id_values:
+            p.batch_size = id_values[gpu_id]
+        else:
+            # No matching GPU ID found, default to batch size of 1
+            p.batch_size = 1
+    elif isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
+        if isinstance(v,str): v = int(v)
+        p.batch_size = v
+    else:
+        # Invalid input value, default to batch size of 1
+        p.batch_size = 1
 
 
 ######################### Addons #########################
@@ -148,19 +267,23 @@ def tryInit():
     registerMode("Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
     registerMode("Negative Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
     registerMode("N Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
+    registerMode("random", GridSettingMode(dry=False, type="text", apply=randomizepostpre))
     for i in range(0, 10):
         registerMode(f"Prompt Replace{i}", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
         registerMode(f"Negative Prompt Replace{i}", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
         registerMode(f"N Prompt Replace{i}", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
-    registerMode("Var Seed", GridSettingMode(dry=True, type="integer", apply=applyField("subseed")))
-    registerMode("Seed", GridSettingMode(dry=True, type="integer", apply=applyField("seed")))
-    registerMode("batch size", GridSettingMode(dry=True, type="integer", apply=applyField("batch_size")))
-    registerMode("Width", GridSettingMode(dry=True, type="integer", apply=applyField("width")))
-    registerMode("Height", GridSettingMode(dry=True, type="integer", apply=applyField("height")))
-    registerMode("Prompt", GridSettingMode(dry=True, type="text", apply=applyField("prompt")))
+    modes = ["var seed","seed", "width", "height"]
+    fields = ["subseed", "seed",  "width", "height"]
+    for field, mode in enumerate(modes):
+        registerMode(mode, GridSettingMode(dry=True, type="integer", apply=applyField(fields[field])))
+    modes = ["prompt", "negative prompt"]
+    fields = ["prompt", "negative_prompt"]
+    for field, mode in enumerate(modes):
+        registerMode(mode, GridSettingMode(dry=True, type="text", apply=applyField(fields[field])))
+    
+    registerMode("batch size", GridSettingMode(dry=True, type="text", apply=setbatch))
     registerMode("Steps", GridSettingMode(dry=True, type="integer", min=0, max=200, apply=applyField("steps")))
     registerMode("CFG Scale", GridSettingMode(dry=True, type="decimal", min=0, max=500, apply=applyField("cfg_scale")))
-    registerMode("Negative Prompt", GridSettingMode(dry=True, type="text", apply=applyField("negative_prompt")))
     registerMode("Tiling", GridSettingMode(dry=True, type="boolean", apply=applyField("tiling")))
     registerMode("Var Strength", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=applyField("subseed_strength")))
     registerMode("Denoising", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=applyField("denoising_strength")))

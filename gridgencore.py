@@ -8,6 +8,7 @@ import shutil
 import math
 import re
 import pathlib
+import random
 from modules import sd_models
 from modules.processing import StableDiffusionProcessing
 from modules.processing import StableDiffusionProcessingTxt2Img
@@ -491,25 +492,28 @@ class GridRunner:
         prompt_group = []
         batchsize = Promptkey.batch_size
         starto = 0
+        if hasattr(Promptkey, "randomtime"):
+            random_mode = Promptkey.randomtime
+        else:
+            random_mode = "none"
+        prompt_groups = {}
+        prompt_group = []
+        starto = 0
         for i in range(len(prompt_list)):
             prompt = prompt_list[i]
             if i > 0:
                 prompt2 = prompt_list[i - 1]
-            else: prompt2 = prompt
+            else:
+                prompt2 = prompt
             if prompt in modelchange and prompt != prompt2 and prompt2 in modelchange and modelchange[prompt] != modelchange[prompt2]:
                 if len(prompt_group) > 0:
-                    print("adding incomplete group")
                     prompt_groups[starto] = prompt_group
                     starto += 1
-                print("model changing section")
                 prompt_groups[starto] = prompt
                 starto += 1
                 prompt_group = []
-            elif i % batchsize == 0:
-                batchsize = prompt.batch_size
-                print(f"creating group of size: {batchsize}")
+            elif i % prompt.batch_size == 0:
                 if prompt_group:
-                    #print(type(prompt_group))
                     prompt_groups[starto] = prompt_group
                     starto += 1
                     prompt_group = []
@@ -518,12 +522,59 @@ class GridRunner:
                 prompt_group.append(prompt)
         if prompt_group:
             prompt_groups[starto] = prompt_group
+
+        if random_mode == "bymodel":
+            # Start a new group when a modelchange occurs and add a randomizer
+            new_groups = {}
+            last_model = None
+            for key, group in prompt_groups.items():
+                if isinstance(group, list):
+                    new_group = []
+                    for prompt in group:
+                        if prompt in modelchange and modelchange[prompt] != last_model:
+                            if new_group:
+                                random.shuffle(new_group)
+                                new_groups[starto] = new_group
+                                starto += 1
+                                new_group = []
+                            last_model = modelchange[prompt]
+                        new_group.append(prompt)
+                    if new_group:
+                        random.shuffle(new_group)
+                        new_groups[starto] = new_group
+                        starto += 1
+                else:
+                    new_groups[key] = group
+            prompt_groups = new_groups
+
+        elif random_mode == "constant":
+            # Group prompts before randomization and add a randomizer within each group
+            grouped_prompts = {}
+            for prompt in prompt_list:
+                if prompt.prompt_key.randomtime in modelchange:
+                    model = modelchange[prompt.prompt_key.randomtime]
+                    if model not in grouped_prompts:
+                        grouped_prompts[model] = []
+                    grouped_prompts[model].append(prompt)
+                else:
+                    if "default" not in grouped_prompts:
+                        grouped_prompts["default"] = []
+                    grouped_prompts["default"].append(prompt)
+            new_groups = {}
+            for model, group in grouped_prompts.items():
+                if len(group) > 0:
+                    random.shuffle(group)
+                    for i in range(0, len(group), prompt.batch_size):
+                        new_groups[starto] = group[i:i+prompt.batch_size]
+                        starto += 1
+            prompt_groups = new_groups
+
         print("added all to groups")
         merged_prompts = []
         print(f"there are {len(prompt_groups)} groups after grouping. merging now")
         for iterator, promgroup in enumerate(prompt_groups):
             promgroup = prompt_groups[iterator]
-            print(type(promgroup))
+            #print(type(promgroup))
             if isinstance(promgroup, StableDiffusionProcessing) or isinstance(promgroup, int):
                 print("object is processing object")
                 fail = True
@@ -583,7 +634,7 @@ class GridRunner:
                 for prompt in promgroup:
                     prompt.batch_size = 1
                 merged_prompts.extend(promgroup)
-
+        print(f"there are {len(merged_prompts)} generations after merging")
         return merged_prompts
 
 ######################### Web Data Builders #########################
