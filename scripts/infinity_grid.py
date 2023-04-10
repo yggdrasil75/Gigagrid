@@ -119,12 +119,6 @@ def applyEnableHr(p, v):
     if v:
         if p.denoising_strength is None:
             p.denoising_strength = 0.75
-
-def randomizepostpre(p,v):
-    if v == "bymodel":
-        p.randomtime = "bymodel"
-    elif v == "always":
-        p.randomtime = "constant"
         
 SEMVER_TO_ARCH = {
     (1, 0): 'tesla',
@@ -178,7 +172,7 @@ def setbatch(p, v):
     # Load the model information from the JSON file
     # Get the absolute path of the directory in which the script is running
     dir_path = os.path.abspath(os.path.dirname(__file__))
-    print(dir_path)
+    #print(dir_path)
     # Load the JSON file from the current directory
     with open(os.path.join(dir_path, 'models.json')) as f:
         models_data = json.load(f)
@@ -267,7 +261,6 @@ def tryInit():
     registerMode("Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
     registerMode("Negative Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
     registerMode("N Prompt Replace", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
-    registerMode("random", GridSettingMode(dry=False, type="text", apply=randomizepostpre))
     for i in range(0, 10):
         registerMode(f"Prompt Replace{i}", GridSettingMode(dry=True, type="text", apply=applyPromptReplace))
         registerMode(f"Negative Prompt Replace{i}", GridSettingMode(dry=True, type="text", apply=applyNegPromptReplace))
@@ -276,8 +269,8 @@ def tryInit():
     fields = ["subseed", "seed",  "width", "height"]
     for field, mode in enumerate(modes):
         registerMode(mode, GridSettingMode(dry=True, type="integer", apply=applyField(fields[field])))
-    modes = ["prompt", "negative prompt"]
-    fields = ["prompt", "negative_prompt"]
+    modes = ["prompt", "negative prompt", "random"]
+    fields = ["prompt", "negative_prompt", "randomtime"]
     for field, mode in enumerate(modes):
         registerMode(mode, GridSettingMode(dry=True, type="text", apply=applyField(fields[field])))
     
