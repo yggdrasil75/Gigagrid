@@ -492,8 +492,8 @@ class GridRunner:
         prompt_group = []
         batchsize = Promptkey.batch_size
         starto = 0
-        if hasattr(Promptkey, "randomtime"):
-            random_mode = Promptkey.randomtime
+        if hasattr(prompt_list[0], "randomtime"):
+            random_mode = prompt_list[0].randomtime
         else:
             random_mode = "none"
         prompt_groups = {}
@@ -525,6 +525,8 @@ class GridRunner:
 
         if random_mode == "bymodel":
             # Start a new group when a modelchange occurs and add a randomizer
+            print("randomizing order")
+            starto = 0
             new_groups = {}
             last_model = None
             for key, group in prompt_groups.items():
