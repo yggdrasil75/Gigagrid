@@ -4,11 +4,14 @@ This fork adds the following:
 
 Full path specification (if you put f:\path\to\whatever then the output will be there, instead of automatic\grids\whatever)
 
-batching: batch size is optional as either yaml or via gui. the yaml will override the gui as normal. key is "batch size". you can run it with more than the gui batch size (I run it at 10 for my 512x512. on a better card you could do 20 possibly)
+Batching: batch size is optional as either yaml or via gui. the yaml will override the gui as normal. key is "batch size". you can run it with more than the gui batch size (I run it at 10 for my 512x512. on a better card you could do 20 possibly)
+    byid: instead of using a fixed integer value, you can use "byid". as an example, I use "byid|0=12|1=6" so my 3090 will run 12 at a time and my 1080 ti will run 6 at a time.
 
-numeric prompt replace: you can use "prompt replace 1" up to "prompt replace 9" as keys (with spaces) to make it easier to specify the various prompt replaces. now you can organize them more naturally.
+Numeric prompt replace: you can use "prompt replace 1" up to "prompt replace 9" as keys (with spaces) to make it easier to specify the various prompt replaces. now you can organize them more naturally.
 
-Negative Prompt Replace: you can use "n prompt replace" or "negative prompt replace" (with negative allowing 1-9 similar to normal. n being the lazier option I didnt add numbers to)
+Negative Prompt Replace: you can use "n prompt replace" or "negative prompt replace" (with negative allowing 1-9 similar to normal.)
+
+Random: you can set "random: bymodel" in your grid params and it should randomize the order of the batches that are to be generated within their model. An "always" mode will be added to allow for changing at any time, but this will slow it down considerably so its not a priority.)
 
 # Stable Diffusion Infinity Grid Generator
 
