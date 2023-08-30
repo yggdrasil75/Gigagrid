@@ -18,6 +18,8 @@ grid:
                  This is to demonstrate the concept of how the infinite-axis grid system works.
                  This description here demonstrates multi-line YAML strings.
                  <br>It also shows that you can write <b>HTML</b> if you want to.
+    # output path was added so you dont have to set it if you have a "megagrid" each time you want to continue.
+    outpath: c:\users\public\pictures\SD Infinity example
     # Optionally specify base parameters. If not set, it will use whatever parameters you have in the WebUI.
     # These can be overridden by an axis.
     params:
@@ -60,6 +62,15 @@ axes:
                     Sampler: Euler
             ddim:
                 title: DDIM
+                #skipping was enhanced, in order to allow piecemeal skipping, where you can say "I dont want x to appear in y" or "x and y params combined dont make sense", then you can skip like so:
+                skip:
+                    # title will match any axis value with that title.
+                    title:
+                        - 10
+                    # params will attempt to match any parameter included, as a string.
+                    params:
+                        - portrait
+                #both of these new options are lists, so you can put multiple items in here easily.
                 description: The original.
                 params:
                     Sampler: ddim
