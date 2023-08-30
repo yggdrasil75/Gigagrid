@@ -19,6 +19,7 @@ from modules.shared import opts
 from copy import copy
 from PIL import Image
 import types
+import datetime
 
 ######################### Core Variables #########################
 
@@ -266,7 +267,15 @@ class AxisValue:
 		else:
 			self.title = grid.procVariables(val.get("title"))
 			self.description = grid.procVariables(val.get("description"))
-			self.skip = (str(grid.procVariables(val.get("skip")))).lower() == "true"
+			self.skip = False
+			self.skip_list = val.get("skip")
+			#print(type(self.skip_list))
+			if isinstance(self.skip_list, bool):
+				self.skip = self.skip_list
+			elif self.skip_list is not None and isinstance(self.skip_list, dict):
+				self.skip = self.skip_list.get("always")
+			#print(self.skip)
+			#print(self.skip_list)
 			self.params = fixDict(val.get("params"))
 			self.show = (str(grid.procVariables(val.get("show")))).lower() != "false"
 			if self.title is None or self.params is None:
@@ -291,14 +300,14 @@ class Axis:
 			valueList = expandNumericListRanges(valueList, float)
 		index = 0
 		for val in valueList:
-			try:
-				val = str(val).strip()
-				index += 1
-				if isSplitByDoublePipe and val == "" and index == len(valueList):
-					continue
-				self.values.append(AxisValue(self, grid, str(index), f"{id}={val}"))
-			except Exception as e:
-				raise RuntimeError(f"value '{val}' errored: {e}")
+			#try:
+			val = str(val).strip()
+			index += 1
+			if isSplitByDoublePipe and val == "" and index == len(valueList):
+				continue
+			self.values.append(AxisValue(self, grid, str(index), f"{id}={val}"))
+			#except Exception as e:
+			#	raise RuntimeError(f"value '{val}' errored: {e}")
 
 	def __init__(self, grid, id: str, obj):
 		self.values = list()
@@ -352,6 +361,8 @@ class GridFileHelper:
 		self.description = self.procVariables(gridObj.get("description"))
 		self.author = self.procVariables(gridObj.get("author"))
 		self.format = self.procVariables(gridObj.get("format"))
+		self.OutPath = self.procVariables(gridObj.get("outpath"))
+		print(self.OutPath)
 		if self.title is None or self.description is None or self.author is None or self.format is None:
 			raise RuntimeError(f"Invalid file {grid_file}: missing grid title, author, format, or description in grid obj {gridObj}")
 		self.params = fixDict(gridObj.get("params"))
@@ -379,10 +390,48 @@ class GridFileHelper:
 class SingleGridCall:
 	def __init__(self, values: list):
 		self.values = values
+		#print(f'meh: {values}')
 		self.skip = False
+		skip_dict = {'title': [], 'params': []}
+		titles = []
+		params = []
 		for val in values:
+			#print(val)
 			if val.skip:
 				self.skip = True
+			if hasattr(val, 'skip_list') and isinstance(val.skip_list, dict):
+				#print(f'skip_list: {val.skip_list}')
+				#print(type(val.skip_list))
+				#print(type(skip_dict))
+				if 'title' in val.skip_list.keys():
+					skip_dict['title'] = skip_dict['title'] + val.skip_list['title']
+				if 'params' in val.skip_list.keys():
+					skip_dict['params'] = skip_dict['params'] + val.skip_list['params']
+				#if val.skip_list.get("title").contains 
+			if hasattr(val, 'title'):
+				titles.append(val.title)
+				#print(f'title: {val.title}')
+			if hasattr(val, 'params'):
+				params.append(val.params)
+				#print(f'params: {val.params}')
+		print(f'titles: {titles}')
+		#print(f'params: {params}')
+		skip_title = skip_dict['title']
+		print(f"title: {skip_title}")
+		skip_params = skip_dict['params']
+		#print(f"param: {skip_params}")
+		if skip_title is not None:
+			for item in skip_title:
+				print(item)
+				if item in map(str.lower, titles):
+					print('true (title)')
+					self.skip = True
+		if skip_params is not None:
+			for item in skip_params:
+				#print(item)
+				if any(item in string for string in str(params).lower()):
+					print('true (params)')
+					self.skip = True
 		if gridCallInitHook is not None:
 			gridCallInitHook(self)
 
@@ -404,26 +453,26 @@ class SingleGridCall:
 		if gridCallApplyHook is not None:
 			gridCallApplyHook(self, p, dry)
 
+
 class GridRunner:
-	def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, promptskey: StableDiffusionProcessing, fast_skip: bool):
+	def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, promptskey: StableDiffusionProcessing):
 		self.grid = grid
 		self.totalRun = 0
 		self.totalSkip = 0
 		self.totalSteps = 0
 		self.doOverwrite = doOverwrite
 		self.basePath = basePath
-		self.fast_skip = fast_skip
 		self.promptskey = promptskey
 		self.applied_sets = {}
 		
-	def process_value_set(self, args):
-		self, set, dry, iteration = args
-		if set.doSkip:
-			return None
-		print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
-		p2 = copy(self.promptskey)
-		set.applyTo(p2, dry)
-		return p2, set
+	#def process_value_set(self, args):
+	#	self, set, dry, iteration = args
+	#	if set.skip:
+	#		return None
+	#	print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
+	#	p2 = copy(self.promptskey)
+	#	set.applyTo(p2, dry)
+	#	return p2, set
 
 	def buildValueSetList(self, axisList: list) -> list:
 		result = list()
@@ -432,69 +481,77 @@ class GridRunner:
 		curAxis = axisList[0]
 		if len(axisList) == 1:
 			for val in curAxis.values:
-				if not val.skip or not self.fast_skip:
+				if not val.skip:
 					newList = list()
 					newList.append(val)
-					result.append(SingleGridCall(newList))
+					temp = SingleGridCall(newList)
+					if not temp.skip:
+						result.append(temp)
 			return result
 		nextAxisList = axisList[1::]
 		for obj in self.buildValueSetList(nextAxisList):
 			for val in curAxis.values:
-				if not val.skip or not self.fast_skip:
+				if not val.skip:
 					newList = obj.values.copy()
 					newList.append(val)
-					result.append(SingleGridCall(newList))
+					temp = SingleGridCall(newList)
+					if not temp.skip:
+						result.append(temp)
 		return result
 
 	def preprocess(self):
-		self.valueSets = self.buildValueSetList(list(reversed(self.grid.axes)))
-		print(f'Have {len(self.valueSets)} unique value sets, will go into {self.basePath}')
-		for set in self.valueSets:
+		self.valueSetsTemp = self.buildValueSetList(list(reversed(self.grid.axes)))
+		self.valueSets = []
+		print(f'Have {len(self.valueSetsTemp)} unique value sets, will go into {self.basePath}')
+		for set in self.valueSetsTemp:
 			set.filepath = self.basePath + '/' + '/'.join(list(map(lambda v: cleanName(v.key), set.values)))
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
 			set.flattenParams(self.grid)
-			set.doSkip = set.skip or (not self.doOverwrite and os.path.exists(set.filepath + "." + self.grid.format))
-			if set.doSkip:
+			if set.skip:
+				print('skipping in preprocess')
+				self.totalSkip += 1
+			elif not self.doOverwrite and os.path.exists(os.path.join(set.filepath + "." + self.grid.format)):
+				print('skipping in preprocess')
 				self.totalSkip += 1
 			else:
 				self.totalRun += 1
 				stepCount = set.params.get("steps")
 				self.totalSteps += int(stepCount) if stepCount is not None else self.promptskey.steps
+				self.valueSets.append(set)
+		#for set in self.valueSets.copy():
+		#	if set.skip:
+		#		self.valueSets.remove(set)
 		print(f"Skipped {self.totalSkip} files, will run {self.totalRun} files, for {self.totalSteps} total steps")
 	
+	def logdata(self, message: str):
+		with open(os.path.join(self.basePath, 'log.txt'), 'a+') as f:
+			f.write(message)
+			f.write('\n')
+		print(message)
+			
+	
 	def run(self, dry: bool):
+		starttime = datetime.datetime.now()
 		if gridRunnerPreRunHook is not None:
 			gridRunnerPreRunHook(self)
 		iteration = 0
 		prompt_batch_list = []
 		if not dry:
-			# Determine the number of available CPU cores
-			num_processes = cpu_count() * 4
-			# Create a list of arguments for parallel processing
-			args_list = [(self, set, dry, iteration + idx + 1) for idx, set in enumerate(self.valueSets) if not set.doSkip]
-			# Use ThreadPoolExecutor to parallelize processing
-			with concurrent.futures.ThreadPoolExecutor(max_workers=num_processes) as executor:
-				results = list(executor.map(self.process_value_set, args_list))
-			for p2, set in results:
-				if p2 is not None:
-					prompt_batch_list.append(p2)
-					self.applied_sets[p2] = self.applied_sets.get(p2, []) + [set]
-		else:
 			for set in self.valueSets:
-				if set.doSkip:
+				if set.skip:
+					print('\033[1;31;40m skipped')
 					continue
 				iteration += 1
 				#if not dry:
-				#print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
+				print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
 				p2 = copy(self.promptskey)
-				#if gridRunnerPreDryHook is not None:
-				#	gridRunnerPreDryHook(self)
 				set.applyTo(p2, dry)
 				prompt_batch_list.append(p2)
 				#self.applied_sets.add()
 				self.applied_sets[p2] = self.applied_sets.get(p2, []) + [set]
-		prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
-		if not dry:
+			self.logdata(f'setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now')
+			self.logdata(f'\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth')
+			prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
 			for i, p2 in enumerate(prompt_batch_list):
 				#print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
 				#p2 = StableDiffusionProcessing(p2)
@@ -503,11 +560,19 @@ class GridRunner:
 				if gridRunnerPreDryHook is not None:
 					gridRunnerPreDryHook(self)
 				try:
+					start2 = datetime.datetime.now()
 					last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[p2])
+					end2 = datetime.datetime.now()
+					steptotal = (end2 - start2).total_seconds()
+					print(f'the last batch took {steptotal:.2f} for {p2.batch_size} images. an average generation speed of {steptotal / p2.batch_size} per image, and {steptotal / p2.batch_size / p2.steps} seconds per image step')
+					self.logdata(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}')
 				except: 
 					print("image failed to generate. please restart later")
 					continue
+		endtime = datetime.datetime.now()
+		self.logdata(f'time taken: {(endtime - starttime).total_seconds():.2f}')
 		return last
+	
 	
 	def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
 		# Group prompts by batch size
@@ -515,10 +580,6 @@ class GridRunner:
 		prompt_group = []
 		batchsize = Promptkey.batch_size
 		starto = 0
-		if hasattr(prompt_list[0], "randomtime"):
-			random_mode = prompt_list[0].randomtime
-		else:
-			random_mode = "none"
 		prompt_groups = {}
 		prompt_group = []
 		starto = 0
@@ -545,54 +606,6 @@ class GridRunner:
 				prompt_group.append(prompt)
 		if prompt_group:
 			prompt_groups[starto] = prompt_group
-
-		if random_mode == "bymodel":
-			# Start a new group when a modelchange occurs and add a randomizer
-			print("randomizing order")
-			starto = 0
-			new_groups = {}
-			last_model = None
-			for key, group in prompt_groups.items():
-				if isinstance(group, list):
-					new_group = []
-					for prompt in group:
-						if prompt in modelchange and modelchange[prompt] != last_model:
-							if new_group:
-								random.shuffle(new_group)
-								new_groups[starto] = new_group
-								starto += 1
-								new_group = []
-							last_model = modelchange[prompt]
-						new_group.append(prompt)
-					if new_group:
-						random.shuffle(new_group)
-						new_groups[starto] = new_group
-						starto += 1
-				else:
-					new_groups[key] = group
-			prompt_groups = new_groups
-
-		elif random_mode == "constant":
-			# Group prompts before randomization and add a randomizer within each group
-			grouped_prompts = {}
-			for prompt in prompt_list:
-				if prompt.prompt_key.randomtime in modelchange:
-					model = modelchange[prompt.prompt_key.randomtime]
-					if model not in grouped_prompts:
-						grouped_prompts[model] = []
-					grouped_prompts[model].append(prompt)
-				else:
-					if "default" not in grouped_prompts:
-						grouped_prompts["default"] = []
-					grouped_prompts["default"].append(prompt)
-			new_groups = {}
-			for model, group in grouped_prompts.items():
-				if len(group) > 0:
-					random.shuffle(group)
-					for i in range(0, len(group), prompt.batch_size):
-						new_groups[starto] = group[i:i+prompt.batch_size]
-						starto += 1
-			prompt_groups = new_groups
 
 		print("added all to groups")
 		merged_prompts = []
@@ -661,6 +674,9 @@ class GridRunner:
 				merged_prompts.extend(promgroup)
 		print(f"there are {len(merged_prompts)} generations after merging")
 		return merged_prompts
+
+
+
 
 ######################### Web Data Builders #########################
 
@@ -775,7 +791,7 @@ class WebDataBuilder():
 
 ######################### Main Runner Function #########################
 
-def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, fastSkip: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
+def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
 	grid = GridFileHelper()
 	if manualPairs is None:
 		fullInputPath = ASSET_DIR + "/" + inputFile
@@ -805,13 +821,17 @@ def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFold
 					raise RuntimeError(f"Invalid axis {(i + 1)} '{key}': errored: {e}")
 	# Now start using it
 	if outputFolderName.strip() == "":
-		outputFolderName = inputFile.replace(".yml", "")
+		if grid.OutPath is None:
+			outputFolderName = inputFile.replace(".yml", "")
+		else:
+			outputFolderName = grid.OutPath.strip()
 	#folder = outputFolderBase + "/" + outputFolderName
+	print("will save to: " + outputFolderName)
 	if os.path.isabs(outputFolderName):
 		folder = outputFolderName
 	else:
 		folder = os.path.join(outputFolderBase, outputFolderName)
-	runner = GridRunner(grid, doOverwrite, folder, passThroughObj, fastSkip)
+	runner = GridRunner(grid, doOverwrite, folder, passThroughObj)
 	runner.preprocess()
 	if generatePage:
 		WebDataBuilder.EmitWebData(folder, grid, publishGenMetadata, passThroughObj)

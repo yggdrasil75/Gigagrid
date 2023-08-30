@@ -405,13 +405,6 @@ def a1111GridRunnerPostDryHook(gridRunner, promptkey: StableDiffusionProcessing,
 		images.save_image(img, path=os.path.dirname(set.filepath), basename="", 
 							forced_filename=os.path.basename(set.filepath), save_to_dirs=False, info=info, 
 							extension=gridRunner.grid.format, p=promptkey, prompt=promptkey.prompt[iterator], seed=processed.seed)
-	#opts.CLIP_stop_at_last_layers = gridRunner.temp.oldClipSkip
-	#opts.code_former_weight = gridRunner.temp.oldCodeformerWeight
-	#opts.face_restoration_model = gridRunner.temp.oldFaceRestorer
-	#opts.sd_vae = gridRunner.temp.oldVae
-	#opts.sd_model_checkpoint = gridRunner.temp.oldModel
-	#opts.eta_noise_seed_delta = gridRunner.temp.eta_noise_seed_delta
-	#gridRunner.temp = None
 	return processed
 
 def a1111WebDataGetBaseParamData(p):
@@ -465,7 +458,10 @@ class Script(scripts.Script):
 	VALIDATE_REPLACE = True
 
 	def title(self):
-		return "Generate Infinite-Axis Grid"
+		if __file__.endswith('.pyc'):
+			return "Generate Infinite-Axis Grid (compiled)"
+		else:
+			return "Generate Infinite-Axis Grid (decompiled)"
 
 	def show(self, is_img2img):
 		return True
@@ -547,14 +543,14 @@ class Script(scripts.Script):
 		with gr.Row():
 			do_overwrite = gr.Checkbox(value=False, label="Overwrite existing images (for updating grids)")
 			dry_run = gr.Checkbox(value=False, label="Do a dry run to validate your grid file")
-			fast_skip = gr.Checkbox(value=False, label="Use more-performant skipping")
+			#fast_skip = gr.Checkbox(value=True, label="Use more-performant skipping")
 		with gr.Row():
 			generate_page = gr.Checkbox(value=True, label="Generate infinite-grid webviewer page")
-			validate_replace = gr.Checkbox(value=True, label="Validate PromptReplace input")
+			validate_replace = gr.Checkbox(value=False, label="Validate PromptReplace input")
 			publish_gen_metadata = gr.Checkbox(value=True, label="Publish full generation metadata for viewing on-page")
-		return [do_overwrite, generate_page, dry_run, validate_replace, publish_gen_metadata, grid_file, fast_skip, output_file_path] + manualAxes
+		return [do_overwrite, generate_page, dry_run, validate_replace, publish_gen_metadata, grid_file, output_file_path] + manualAxes
 
-	def run(self, p, do_overwrite, generate_page, dry_run, validate_replace, publish_gen_metadata, grid_file, fast_skip, output_file_path, *manualAxes):
+	def run(self, p, do_overwrite, generate_page, dry_run, validate_replace, publish_gen_metadata, grid_file, output_file_path, *manualAxes):
 		core.clearCaches()
 		tryInit()
 		# Clean up default params
@@ -572,13 +568,13 @@ class Script(scripts.Script):
 		if '..' in output_file_path:
 			raise RuntimeError(f"Unacceptable alt file path '{output_file_path}'")
 		if grid_file == "Create in UI":
-			if output_file_path is None or output_file_path == "":
-				raise RuntimeError(f"Must specify the output file path")
+			#if output_file_path is None or output_file_path == "":
+			#	raise RuntimeError(f"Must specify the output file path")
 			manualAxes = list(manualAxes)
 		else:
 			manualAxes = None
 		with SettingsFixer():
-			result = core.runGridGen(p, grid_file, p.outpath_grids, output_file_path, do_overwrite, fast_skip, generate_page, publish_gen_metadata, dry_run, manualAxes)
+			result = core.runGridGen(p, grid_file, p.outpath_grids, output_file_path, do_overwrite, generate_page, publish_gen_metadata, dry_run, manualAxes)
 		if result is None:
 			return Processed(p, list())
 		return result
