@@ -4,9 +4,13 @@ This fork adds the following:
 
 Full path specification (if you put f:\path\to\whatever then the output will be there, instead of automatic\grids\whatever)
 
+full or partial path specification in the grid file via "outpath"
+
+piecemeal skipping via "title" specification and "params" less specifically. allowing you to ignore certain combinations without skipping an option completely.
+
 Batching: batch size is optional as either yaml or via gui. the yaml will override the gui as normal. key is "batch size". you can run it with more than the gui batch size (I run it at 10 for my 512x512. on a better card you could do 20 possibly)
 
-Numeric prompt replace: you can use "prompt replace 1" up to "prompt replace 9" as keys (with spaces) to make it easier to specify the various prompt replaces. now you can organize them more naturally.
+Numeric prompt replace: you can use "prompt replace 1" up to "prompt replace 9" as keys (with spaces) to make it easier to specify the various prompt replaces. now you can organize them more naturally. (included in base since adding to here.)
 
 Negative Prompt Replace: you can use "n prompt replace" or "negative prompt replace" (with negative allowing 1-9 similar to normal.)
 
