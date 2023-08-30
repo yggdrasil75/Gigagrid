@@ -168,8 +168,10 @@ axes:
 | `VAE` | Filename | `kl-f8-anime2` | See note on `Model` above |
 | `Prompt` | Text | `a cat` | |
 | `Negative Prompt` | Text | `gross, weird, bad` | |
-| `Prompt Replace` | Text-Pair | `some_tag = new text here` | Note the `=` symbol to separate the original text with the new text. That will change a prompt of for example `my prompt with some_tag stuff` to `my prompt with new text here stuff`.<br>Unlike other modes, the PromptReplace is case-sensitive - if you use capitals in your prompt, you need capitals in your replace matcher.<br>If you want multiple replacements in one value, you can just do `PromptReplace` and `Prompt Replace` and `Prompt    Replace` and etc. as they are all parsed the same. |
+| `Prompt Replace` | Text-Pair | `some_tag = new text here` | Note the `=` symbol to separate the original text with the new text. That will change a prompt of for example `my prompt with some_tag stuff` to `my prompt with new text here stuff`.<br>Unlike other modes, the PromptReplace is case-sensitive - if you use capitals in your prompt, you need capitals in your replace matcher.<br>If you want multiple replacements in one value, you can just do `PromptReplace` and `Prompt Replace` and `Prompt Replace    2` and etc. as they are all parsed the same. |
+| `Negative Prompt Replace` | Text-Pair | `some_tag = new text here` | Note the `=` symbol to separate the original text with the new text. That will change a prompt of for example `my prompt with some_tag stuff` to `my prompt with new text here stuff`.<br>Unlike other modes, the PromptReplace is case-sensitive - if you use capitals in your prompt, you need capitals in your replace matcher.<br>If you want multiple replacements in one value, you can just do `nPromptReplace` and `negative Prompt Replace` and `n Prompt Replace 2` and etc. as they are all parsed the same. |
 | `Seed` | Integer | `1`, `2`, `3`, ... | |
+| `Batch Size` | Integer | `1`, `2`, `3`, ... | Batch size can be used to group items. if 2 items are not able to be batch generated, they will be generated separately automatically. dont go above your limit, if you do, it will error out.|
 | `Steps` | Integer | `20`, `50`, ... | |
 | `CFG Scale` | Decimal | `5`, `7.5`, `12`, ... | |
 | `Width` | Integer | `512`, `768`, ... | Initial generation width. |
@@ -215,6 +217,7 @@ axes:
         - Sampler=Euler, Steps=10, Seed=1
         - Sampler=Euler, Steps=10, Seed=2
     - So, things that take time to load, like `Model`, should be put near the top, so they don't have to be loaded repeatedly.
+- to skip, you can use skip as a dictionary or as a boolean. when a dictionary you can have "always" for a simple true/false, or "title" as a list of titles of axis values or "params" as a list of items that can be contained within any parameter to skip.
 
 --------------
 
