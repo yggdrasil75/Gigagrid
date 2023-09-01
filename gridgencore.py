@@ -952,7 +952,7 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 	if dryRun:
 		print("Infinite Grid dry run succeeded without error")
 	else:
-		json = json.replace('"will_run": true, ', '')
+		json = str(json).replace('"will_run": true, ', '')
 		with open(os.path.join(folder, "data.js"), 'w', encoding="utf-8") as f:
 			f.write("rawData = " + json)
 		os.remove(os.path.join(folder, "last.js"))
