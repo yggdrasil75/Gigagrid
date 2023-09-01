@@ -18,17 +18,22 @@ from modules.processing import StableDiffusionProcessingImg2Img
 from modules.shared import opts
 from copy import copy
 from PIL import Image
+from git import Repo
 import types
 import datetime
+from colorama import init as CInit, Fore, Style
+CInit()
 
 ######################### Core Variables #########################
 
-ASSET_DIR = os.path.dirname(__file__) + "/assets"
-EXTRA_FOOTER = "..."
-EXTRA_ASSETS = []
+AssetDir = os.path.dirname(__file__) + "/assets"
+ExtraFooter = "..."
+ExtraAssets = []
 validModes = {}
-IMAGES_CACHE = None
+ImagesCache = None
 modelchange = {}
+logFile: str
+Version = '23.8.30'
 
 ######################### Hooks #########################
 
@@ -50,22 +55,51 @@ gridRunnerRunPostDryHook: callable = None
 webDataGetBaseParamData: callable = None
 
 ######################### Utilities #########################
-def cleanFilePath(fn: str):
+def escapeHTML(text: str) -> str:
+	return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+def dataLog(message: str, doprint: bool, level: int) -> None:
+	with open(logFile, 'a+', encoding="utf-8") as f:
+		f.write(message)
+		f.write('\n')
+	if print:
+		if level == 0:
+			#print(message)
+			print(Fore.RED + message + Style.RESET_ALL)
+		elif level == 1:
+			#print(message)
+			print(Fore.BLUE + message + Style.RESET_ALL)
+		elif level == 2:
+			#print(message)
+			print(Fore.GREEN + message + Style.RESET_ALL)
+
+def cleanFilePath(fn: str) -> str:
 	fn = fn.replace('\\', '/')
 	while '//' in fn:
 		fn = fn.replace('//', '/')
 	return fn
 
-def lateapplyModel(p, v):
+def lateapplyModel(p, v) -> None:
 	opts.sd_model_checkpoint = getModelFor(v)
 	sd_models.reload_model_weights()
 
+def getVersion() -> str:
+	global Version
+	if Version is not None:
+		return Version
+	try:
+		repo = Repo(os.path.dirname(__file__))
+		Version = repo.head.commit.hexsha[:8]
+	except Exception:
+		Version = "Unknown"
+	return Version
+
 def listImageFiles():
-	global IMAGES_CACHE
-	if IMAGES_CACHE is not None:
-		return IMAGES_CACHE
-	imageDir = cleanFilePath(ASSET_DIR + "/images")
-	IMAGES_CACHE = list()
+	global ImagesCache
+	if ImagesCache is not None:
+		return ImagesCache
+	imageDir = cleanFilePath(AssetDir + "/images")
+	ImagesCache = list()
 	for path, _, files in os.walk(imageDir):
 		for name in files:
 			_, ext = os.path.splitext(name)
@@ -74,16 +108,16 @@ def listImageFiles():
 				fn = cleanFilePath(fn).replace(imageDir, '')
 				while fn.startswith('/'):
 					fn = fn[1:]
-				IMAGES_CACHE.append(fn)
-	return IMAGES_CACHE
+				ImagesCache.append(fn)
+	return ImagesCache
 
-def clearCaches():
-	global IMAGES_CACHE
-	IMAGES_CACHE = None
+def clearCaches() -> None:
+	global ImagesCache
+	ImagesCache = None
 
-def getNameList():
-	fileList = glob.glob(ASSET_DIR + "/*.yml")
-	justFileNames = list(map(lambda f: os.path.relpath(f, ASSET_DIR), fileList))
+def getNameList() -> list[str]:
+	fileList = glob.glob(AssetDir + "/*.yml")
+	justFileNames = sorted(list(map(lambda f: os.path.relpath(f, AssetDir), fileList)))
 	return justFileNames
 
 def fixDict(d: dict):
@@ -100,25 +134,25 @@ def cleanForWeb(text: str):
 		raise RuntimeError(f"Value '{text}' is supposed to be text but isn't (it's a datamapping, list, or some other incorrect format). Did you typo the formatting?")
 	return text.replace('"', '&quot;')
 
-def cleanId(id: str):
+def cleanId(id: str) -> str:
 	return re.sub("[^a-z0-9]", "_", id.lower().strip())
 
-def cleanName(name: str):
+def cleanName(name: str) -> str:
 	return str(name).lower().replace(' ', '').replace('[', '').replace(']', '').strip()
 
 def getBestInList(name: str, list: list):
-	backup = None
-	bestLen = 999
-	name = cleanName(name)
-	for listVal in list:
-		listValClean = cleanName(listVal)
-		if listValClean == name:
-			return listVal
-		if name in listValClean:
-			if len(listValClean) < bestLen:
-				backup = listVal
-				bestLen = len(listValClean)
-	return backup
+    backup = None
+    best_len = 999
+    name = cleanName(name)
+    for list_val in list:
+        list_val_clean = cleanName(list_val)
+        if list_val_clean == name:
+            return list_val
+        if name in list_val_clean:
+            if len(list_val_clean) < best_len:
+                backup = list_val
+                best_len = len(list_val_clean)
+    return backup
 
 def chooseBetterFileName(rawName: str, fullName: str):
 	partialName = os.path.splitext(os.path.basename(fullName))[0]
@@ -193,7 +227,7 @@ def applyFieldAsImageData(name: str):
 		fName = getBestInList(v, listImageFiles())
 		if fName is None:
 			raise RuntimeError("Invalid parameter '{p}' as '{v}': image file does not exist")
-		path = ASSET_DIR + "/images/" + fName
+		path = AssetDir + "/images/" + fName
 		image = Image.open(path)
 		setattr(p, name, image)
 	return applier
@@ -310,6 +344,7 @@ class Axis:
 			#	raise RuntimeError(f"value '{val}' errored: {e}")
 
 	def __init__(self, grid, id: str, obj):
+		self.raw_id = id
 		self.values = list()
 		self.id = cleanId(str(id))
 		if any(x.id == self.id for x in grid.axes):
@@ -338,13 +373,19 @@ class Axis:
 						raise RuntimeError(f"value '{key}' errored: {e}")
 
 class GridFileHelper:
-	def procVariables(self, text):
+	def procVariables(self, text) -> str | None:
 		if text is None:
 			return None
 		text = str(text)
 		for key, val in self.variables.items():
 			text = text.replace(key, val)
 		return text
+
+	#def read_grid_direct(self, key: str):
+	#	return self.gridObj.get(key)
+	#
+	#def read_str_from_grid(self, key: str):
+	#	return self.procVariables(self.read_grid_direct(key))
 
 	def parseYaml(self, yamlContent: dict, grid_file: str):
 		self.variables = dict()
@@ -354,28 +395,25 @@ class GridFileHelper:
 		if varsObj is not None:
 			for key, val in varsObj.items():
 				self.variables[str(key).lower()] = str(val)
-		gridObj = fixDict(yamlContent.get("grid"))
-		if gridObj is None:
+		self.gridObj = fixDict(yamlContent.get("grid"))
+		if self.gridObj is None:
 			raise RuntimeError(f"Invalid file {grid_file}: missing basic 'grid' root key")
-		self.title = self.procVariables(gridObj.get("title"))
-		self.description = self.procVariables(gridObj.get("description"))
-		self.author = self.procVariables(gridObj.get("author"))
-		self.format = self.procVariables(gridObj.get("format"))
-		self.OutPath = self.procVariables(gridObj.get("outpath"))
+		self.title = self.gridObj.get("title")
+		self.description = self.gridObj.get("description")
+		self.author = self.gridObj.get("author")
+		self.format = self.gridObj.get("format")
+		self.OutPath = self.gridObj.get("outpath")
 		print(self.OutPath)
 		if self.title is None or self.description is None or self.author is None or self.format is None:
-			raise RuntimeError(f"Invalid file {grid_file}: missing grid title, author, format, or description in grid obj {gridObj}")
-		self.params = fixDict(gridObj.get("params"))
+			raise RuntimeError(f"Invalid file {grid_file}: missing grid title, author, format, or description in grid obj {self.gridObj}")
+		self.params = fixDict(self.gridObj.get("params"))
 		if self.params is not None:
 			validateParams(self, self.params)
 		axesObj = fixDict(yamlContent.get("axes"))
 		if axesObj is None:
 			raise RuntimeError(f"Invalid file {grid_file}: missing basic 'axes' root key")
 		for id, axisObj in axesObj.items():
-			try:
-				self.axes.append(Axis(self, id, axisObj if isinstance(axisObj, str) else fixDict(axisObj)))
-			except Exception as e:
-				raise RuntimeError(f"Invalid axis '{id}': errored: {e}")
+			self.axes.append(Axis(self, id, axisObj if isinstance(axisObj, str) else fixDict(axisObj)))
 		totalCount = 1
 		for axis in self.axes:
 			totalCount *= len(axis.values)
@@ -388,7 +426,7 @@ class GridFileHelper:
 ######################### Actual Execution Logic #########################
 
 class SingleGridCall:
-	def __init__(self, values: list):
+	def __init__(self, values: list) -> None:
 		self.values = values
 		#print(f'meh: {values}')
 		self.skip = False
@@ -414,28 +452,29 @@ class SingleGridCall:
 			if hasattr(val, 'params'):
 				params.append(val.params)
 				#print(f'params: {val.params}')
-		print(f'titles: {titles}')
+		#print(f'titles: {titles}')
 		#print(f'params: {params}')
 		skip_title = skip_dict['title']
-		print(f"title: {skip_title}")
+		#print(f"title: {skip_title}")
 		skip_params = skip_dict['params']
 		#print(f"param: {skip_params}")
 		if skip_title is not None:
 			for item in skip_title:
-				print(item)
+				#print(item)
 				if item in map(str.lower, titles):
-					print('true (title)')
+					#print('true (title)')
 					self.skip = True
 		if skip_params is not None:
 			for item in skip_params:
 				#print(item)
 				if any(item in string for string in str(params).lower()):
-					print('true (params)')
+					#print('true (params)')
 					self.skip = True
 		if gridCallInitHook is not None:
 			gridCallInitHook(self)
 
 	def flattenParams(self, grid: GridFileHelper):
+		self.grid = grid
 		self.params = grid.params.copy() if grid.params is not None else dict()
 		for val in self.values:
 			for p, v in val.params.items():
@@ -447,7 +486,7 @@ class SingleGridCall:
 			mode = validModes[cleanName(name)]
 			#if not dry or mode.dry:
 			if cleanName(name) == "model":
-				modelchange[p] = val
+				modelchange[id(p)] = val
 			else:
 				mode.apply(p, val)
 		if gridCallApplyHook is not None:
@@ -464,15 +503,18 @@ class GridRunner:
 		self.basePath = basePath
 		self.promptskey = promptskey
 		self.applied_sets = {}
+		grid.minWidth = None
+		grid.minHeight = None
+		grid.initialPromptskey = promptskey
+		self.lastUpdate = []
 		
-	#def process_value_set(self, args):
-	#	self, set, dry, iteration = args
-	#	if set.skip:
-	#		return None
-	#	print(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}')
-	#	p2 = copy(self.promptskey)
-	#	set.applyTo(p2, dry)
-	#	return p2, set
+	def updateLiveFile(self, new_file: str):
+		t_now = datetime.datetime.now()
+		self.lastUpdate = [x for x in self.lastUpdate if t_now - x['t'] < 20]
+		self.lastUpdate.append({'f': new_file, 't': t_now})
+		with open(os.path.join(self.basepath, 'last.js'), 'w', encoding="utf-8") as f:
+			update_str = '", "'.join([x['f'] for x in self.lastUpdate])
+			f.write(f'window.lastUpdated = ["{update_str}"]')
 
 	def buildValueSetList(self, axisList: list) -> list:
 		result = list()
@@ -508,10 +550,10 @@ class GridRunner:
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
 			set.flattenParams(self.grid)
 			if set.skip:
-				print('skipping in preprocess')
+				#print('skipping in preprocess')
 				self.totalSkip += 1
 			elif not self.doOverwrite and os.path.exists(os.path.join(set.filepath + "." + self.grid.format)):
-				print('skipping in preprocess')
+				#print('skipping in preprocess')
 				self.totalSkip += 1
 			else:
 				self.totalRun += 1
@@ -521,10 +563,18 @@ class GridRunner:
 		#for set in self.valueSets.copy():
 		#	if set.skip:
 		#		self.valueSets.remove(set)
-		print(f"Skipped {self.totalSkip} files, will run {self.totalRun} files, for {self.totalSteps} total steps")
+				stepCount = int(stepCount) if stepCount is not None else self.promptskey.steps
+				self.totalSteps += stepCount
+				enable_hr = set.params.get("enable highres fix")
+				if enable_hr is None:
+					enable_hr = self.promptskey.enable_hr
+				if enable_hr:
+					highresSteps = set.params.get("highres steps")
+					highresSteps = int(highresSteps) if highresSteps is not None else (self.promptskey.hr_second_pass_steps or stepCount)
+					self.totalSteps += highresSteps
 	
 	def logdata(self, message: str):
-		with open(os.path.join(self.basePath, 'log.txt'), 'a+') as f:
+		with open(os.path.join(self.basePath, 'log.txt'), 'a+', encoding="utf-8") as f:
 			f.write(message)
 			f.write('\n')
 		print(message)
@@ -548,29 +598,36 @@ class GridRunner:
 				set.applyTo(p2, dry)
 				prompt_batch_list.append(p2)
 				#self.applied_sets.add()
-				self.applied_sets[p2] = self.applied_sets.get(p2, []) + [set]
-			self.logdata(f'setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now')
-			self.logdata(f'\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth')
+				self.applied_sets[id(p2)] = self.applied_sets.get(id(p2), []) + [set]
+			dataLog(f'setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now', True, 1)
+			dataLog(f'\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth', False, 0)
 			prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
 			for i, p2 in enumerate(prompt_batch_list):
 				#print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
 				#p2 = StableDiffusionProcessing(p2)
-				if p2 in modelchange.keys():
-					lateapplyModel(p2,modelchange[p2])
+				if id(p2) in modelchange.keys():
+					lateapplyModel(p2,modelchange[id(p2)])
 				if gridRunnerPreDryHook is not None:
 					gridRunnerPreDryHook(self)
 				try:
 					start2 = datetime.datetime.now()
-					last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[p2])
+					try:
+						last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[id(p2)])
+					except FileNotFoundError as e:
+						if e.strerror == 'The filename or extension is too long' and hasattr(e, 'winerror') and e.winerror == 206:
+							print(f"\n\n\nOS Error: {e.strerror} - see this article to fix that: https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/The-Windows-10-default-path-length-limitation-MAX-PATH-is-256-characters.html \n\n\n")
+						raise e
+					#self.updateLiveFile(set.filepath + "." + self.grid.format)
 					end2 = datetime.datetime.now()
 					steptotal = (end2 - start2).total_seconds()
 					print(f'the last batch took {steptotal:.2f} for {p2.batch_size} images. an average generation speed of {steptotal / p2.batch_size} per image, and {steptotal / p2.batch_size / p2.steps} seconds per image step')
-					self.logdata(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}')
-				except: 
+					dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)
+				except Exception as e: 
 					print("image failed to generate. please restart later")
+					print(f"exception: {e}")
 					continue
 		endtime = datetime.datetime.now()
-		self.logdata(f'time taken: {(endtime - starttime).total_seconds():.2f}')
+		dataLog(f'time taken: {(endtime - starttime).total_seconds():.2f}', True, 2)
 		return last
 	
 	
@@ -589,7 +646,7 @@ class GridRunner:
 				prompt2 = prompt_list[i - 1]
 			else:
 				prompt2 = prompt
-			if prompt in modelchange and prompt != prompt2 and prompt2 in modelchange and modelchange[prompt] != modelchange[prompt2]:
+			if id(prompt) in modelchange and prompt != prompt2 and id(prompt2) in modelchange and modelchange[id(prompt)] != modelchange[id(prompt2)]:
 				if len(prompt_group) > 0:
 					prompt_groups[starto] = prompt_group
 					starto += 1
@@ -654,12 +711,12 @@ class GridRunner:
 				merged_prompts.append(merged_prompt)
 				# Add applied sets
 				for prompt in promgroup:
-					setup2 = self.applied_sets.get(prompt, [])
+					setup2 = self.applied_sets.get(id(prompt), [])
 					#print(setup2)
-					merged_filepaths = [setup.filepath for setup in self.applied_sets[merged_prompt]]
+					merged_filepaths = [setup.filepath for setup in self.applied_sets[id(merged_prompt)]]
 					if any(setall.filepath in merged_filepaths for setall in setup2): continue
-					if self.applied_sets.get(prompt, []) in self.applied_sets[merged_prompt]: continue
-					self.applied_sets[merged_prompt] += self.applied_sets.get(prompt, [])
+					if self.applied_sets.get(id(prompt), []) in self.applied_sets[id(merged_prompt)]: continue
+					self.applied_sets[id(merged_prompt)] += self.applied_sets.get(id(prompt), [])
 				#print("merged")
 				merged_prompt.batch_size = len(promgroup)
 
@@ -681,11 +738,37 @@ class GridRunner:
 ######################### Web Data Builders #########################
 
 class WebDataBuilder():
-	def buildJson(grid, publish_gen_metadata, p):
-		result = {}
-		result['title'] = grid.title
-		result['description'] = grid.description
-		result['ext'] = grid.format
+	def buildJson(grid: GridFileHelper, publish_gen_metadata: bool, p, dryrun: bool):
+		def get_axis(axis: str):
+			id = grid.gridObj.get(axis)
+			if id is None:
+				return ''
+			id = str(id).lower()
+			if id == 'none':
+				return 'none'
+			possible = [x.id for x in grid.axes if x.raw_id == id]
+			if len(possible) == 0:
+				raise RuntimeError(f"Cannot find axis '{id}' for axis default '{axis}'... valid: {[x.raw_id for x in grid.axes]}")
+			return possible[0]
+		show_descrip = grid.gridObj.get('show descriptions')
+		result = {
+			'title': grid.title,
+			'description': grid.description,
+			'ext': grid.format,
+			'minWidth': grid.minWidth,
+			'minHeight': grid.minHeight,
+			'defaults': {
+				'show_descriptions': True if show_descrip is None else show_descrip,
+				'autoscale': grid.gridObj.get('autoscale') or False,
+				'sticky': grid.gridObj.get('sticky') or False,
+				'x': get_axis('x axis'),
+				'y': get_axis('y axis'),
+				'x2': get_axis('x super axis'),
+				'y2': get_axis('y super axis')
+			}
+		}
+		if not dryrun:
+			result['will_run'] = True
 		if publish_gen_metadata:
 			result['metadata'] = None if webDataGetBaseParamData is None else webDataGetBaseParamData(p)
 		axes = list()
@@ -709,14 +792,38 @@ class WebDataBuilder():
 		result['axes'] = axes
 		return json.dumps(result)
 
+
+	def buildYaml(grid):
+		result = {}
+		main = {}
+		main['title'] = grid.title
+		main['description'] = grid.description or ""
+		main['format'] = grid.format
+		main['author'] = grid.author
+		result['grid'] = main
+		axes = {}
+		for axis in grid.axes:
+			jAxis = {}
+			jAxis['title'] = axis.title
+			id = re.sub('__[\d]+$', '', str(axis.id)).replace('_', ' ')
+			dups = sum(x == id for x in axes.keys())
+			if dups > 0:
+				id += (" " * len(dups)) # hack to allow multiples of same id, like for `prompt replace`
+				jAxis['title'] += " " + dups
+			values = list(map(lambda val: str(val.title), axis.values))
+			jAxis['values'] = ' || '.join(values)
+			axes[id] = jAxis
+		result['axes'] = axes
+		return result
+
 	def radioButtonHtml(name, id, descrip, label):
-		return f'<input type="radio" class="btn-check" name="{name}" id="{str(id).lower()}" autocomplete="off" checked=""><label class="btn btn-outline-primary" for="{str(id).lower()}" title="{descrip}">{label}</label>\n'
+		return f'<input type="radio" class="btn-check" name="{name}" id="{str(id).lower()}" autocomplete="off" checked=""><label class="btn btn-outline-primary" for="{str(id).lower()}" title="{descrip}">{escapeHTML(label)}</label>\n'
 	
 	def axisBar(label, content):
 		return f'<br><div class="btn-group" role="group" aria-label="Basic radio toggle button group">{label}:&nbsp;\n{content}</div>\n'
 
 	def buildHtml(grid):
-		with open(ASSET_DIR + "/page.html", 'r') as referenceHtml:
+		with open(AssetDir + "/page.html", 'r', encoding="utf-8") as referenceHtml:
 			html = referenceHtml.read()
 		xSelect = ""
 		ySelect = ""
@@ -729,7 +836,7 @@ class WebDataBuilder():
 			try:
 				axisDescrip = cleanForWeb(axis.description or '')
 				trClass = "primary" if primary else "secondary"
-				content += f'<tr class="{trClass}">\n<td>\n<h4>{axis.title}</h4>\n'
+				content += f'<tr class="{trClass}">\n<td>\n<h4>{escapeHTML(axis.title)}</h4>\n'
 				advancedSettings += f'\n<h4>{axis.title}</h4><div class="timer_box">Auto cycle every <input style="width:30em;" autocomplete="off" type="range" min="0" max="360" value="0" class="form-range timer_range" id="range_tablist_{axis.id}"><label class="form-check-label" for="range_tablist_{axis.id}" id="label_range_tablist_{axis.id}">0 seconds</label></div>\nShow value: '
 				axisClass = "axis_table_cell"
 				if len(axisDescrip.strip()) == 0:
@@ -744,8 +851,8 @@ class WebDataBuilder():
 					active = " active" if isFirst else ""
 					isFirst = False
 					descrip = cleanForWeb(val.description or '')
-					content += f'<li class="nav-item" role="presentation"><a class="nav-link{active}" data-bs-toggle="tab" href="#tab_{axis.id}__{val.key}" id="clicktab_{axis.id}__{val.key}" aria-selected="{selected}" role="tab" title="{val.title}: {descrip}">{val.title}</a></li>\n'
-					advancedSettings += f'&nbsp;<input class="form-check-input" type="checkbox" autocomplete="off" id="showval_{axis.id}__{val.key}" checked="true" onchange="javascript:toggleShowVal(\'{axis.id}\', \'{val.key}\')"> <label class="form-check-label" for="showval_{axis.id}__{val.key}" title="Uncheck this to hide \'{val.title}\' from the page.">{val.title}</label>'
+					content += f'<li class="nav-item" role="presentation"><a class="nav-link{active}" data-bs-toggle="tab" href="#tab_{axis.id}__{val.key}" id="clicktab_{axis.id}__{val.key}" aria-selected="{selected}" role="tab" title="{escapeHTML(val.title)}: {descrip}">{escapeHTML(val.title)}</a></li>\n'
+					advancedSettings += f'&nbsp;<input class="form-check-input" type="checkbox" autocomplete="off" id="showval_{axis.id}__{val.key}" checked="true" onchange="javascript:toggleShowVal(\'{axis.id}\', \'{val.key}\')"> <label class="form-check-label" for="showval_{axis.id}__{val.key}" title="Uncheck this to hide \'{escapeHTML(val.title)}\' from the page.">{escapeHTML(val.title)}</label>'
 				advancedSettings += f'&nbsp;&nbsp;<button class="submit" onclick="javascript:toggleShowAllAxis(\'{axis.id}\')">Toggle All</button>'
 				content += '</ul>\n<div class="tab-content">\n'
 				isFirst = axis.default is None
@@ -771,34 +878,40 @@ class WebDataBuilder():
 		content += WebDataBuilder.axisBar('X Super-Axis', x2Select)
 		content += WebDataBuilder.axisBar('Y Super-Axis', y2Select)
 		content += '</div></div>\n'
-		content += '<div><center><input class="form-check-input" type="checkbox" autocomplete="off" value="" id="autoScaleImages"> <label class="form-check-label" for="autoScaleImages">Auto-scale images to viewport width</label></center></div>'
-		content += '<div style="margin: auto; width: fit-content;"><table id="image_table"></table></div>\n'
-		html = html.replace("{TITLE}", grid.title).replace("{CLEAN_DESCRIPTION}", cleanForWeb(grid.description)).replace("{DESCRIPTION}", grid.description).replace("{CONTENT}", content).replace("{ADVANCED_SETTINGS}", advancedSettings).replace("{AUTHOR}", grid.author).replace("{EXTRA_FOOTER}", EXTRA_FOOTER)
+		html = html.replace("{TITLE}", grid.title).replace("{CLEAN_DESCRIPTION}", cleanForWeb(grid.description)).replace("{DESCRIPTION}", grid.description).replace("{CONTENT}", content).replace("{ADVANCED_SETTINGS}", advancedSettings).replace("{AUTHOR}", grid.author).replace("{EXTRA_FOOTER}", ExtraFooter).replace("{VERSION}", getVersion())
 		return html
 
-	def EmitWebData(path, grid, publish_gen_metadata, p):
+	def EmitWebData(path, grid, publish_gen_metadata, p, yamlContent, dryrun: bool):
 		print("Building final web data...")
 		os.makedirs(path, exist_ok=True)
-		json = WebDataBuilder.buildJson(grid, publish_gen_metadata, p)
-		with open(path + "/data.js", 'w') as f:
+		json = WebDataBuilder.buildJson(grid, publish_gen_metadata, p, dryrun)
+		if not dryrun:
+			with open(os.path.join(path, 'last.js'), 'w+', encoding="utf-8") as f:
+				f.write("windows.lastUpdated = []")
+		with open(path + "/data.js", 'w', encoding="utf-8") as f:
 			f.write("rawData = " + json)
-		for f in ["bootstrap.min.css", "bootstrap.bundle.min.js", "proc.js", "jquery.min.js"] + EXTRA_ASSETS:
-			shutil.copyfile(ASSET_DIR + "/" + f, path + "/" + f)
+		if yamlContent is None:
+			yamlContent = WebDataBuilder.buildYaml(grid)
+		with open(path + "/config.yml", 'w', encoding="utf-8") as f:
+			yaml.dump(yamlContent, f, sort_keys=False, default_flow_style=False, width=1000)
+		for f in ["bootstrap.min.css", "jsgif.js", "bootstrap.bundle.min.js", "proc.js", "jquery.min.js", "styles.css", "placeholder.png"] + ExtraAssets:
+			shutil.copyfile(AssetDir + "/" + f, path + "/" + f)
 		html = WebDataBuilder.buildHtml(grid)
-		with open(path + "/index.html", 'w') as f:
+		with open(path + "/index.html", 'w', encoding="utf-8") as f:
 			f.write(html)
 		print(f"Web file is now at {path}/index.html")
 
 ######################### Main Runner Function #########################
 
-def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
+def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
 	grid = GridFileHelper()
+	yamlContent = None
 	if manualPairs is None:
-		fullInputPath = ASSET_DIR + "/" + inputFile
+		fullInputPath = AssetDir + "/" + inputFile
 		if not os.path.exists(fullInputPath):
 			raise RuntimeError(f"Non-existent file '{inputFile}'")
 		# Parse and verify
-		with open(fullInputPath, 'r') as yamlContentText:
+		with open(fullInputPath, 'r', encoding="utf-8") as yamlContentText:
 			try:
 				yamlContent = yaml.safe_load(yamlContentText)
 			except yaml.YAMLError as exc:
@@ -814,7 +927,7 @@ def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFold
 		grid.params = None
 		for i in range(0, int(len(manualPairs) / 2)):
 			key = manualPairs[i * 2]
-			if isinstance(key, str) and key != "":
+			if isinstance(key, str) and key.strip() != "":
 				try:
 					grid.axes.append(Axis(grid, key, manualPairs[i * 2 + 1]))
 				except Exception as e:
@@ -834,8 +947,13 @@ def runGridGen(passThroughObj, inputFile: str, outputFolderBase: str, outputFold
 	runner = GridRunner(grid, doOverwrite, folder, passThroughObj)
 	runner.preprocess()
 	if generatePage:
-		WebDataBuilder.EmitWebData(folder, grid, publishGenMetadata, passThroughObj)
+		json = WebDataBuilder.EmitWebData(folder, grid, publishGenMetadata, passThroughObj, yamlContent, dryRun)
 	result = runner.run(dryRun)
 	if dryRun:
 		print("Infinite Grid dry run succeeded without error")
+	else:
+		json = json.replace('"will_run": true, ', '')
+		with open(os.path.join(folder, "data.js"), 'w', encoding="utf-8") as f:
+			f.write("rawData = " + json)
+		os.remove(os.path.join(folder, "last.js"))
 	return result

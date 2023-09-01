@@ -5,3 +5,11 @@ assets/images/**/*.png
 assets/images/**/*.jpg
 assets/images/**/*.webp
 Github/
+.github
+infinity_grid.build/
+infinity_grid.dist/
+*.pyi
+*.pyd
+*.pyc
+*.cpython-310.pyc
+
