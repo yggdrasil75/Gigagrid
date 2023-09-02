@@ -1,20 +1,9 @@
 # This file is part of Infinity Grid Generator, view the README.md at https://github.com/mcmonkeyprojects/sd-infinity-grid-generator-script for more information.
 
-import os
-import glob
-import yaml
-import json
-import shutil
-import math
-import re
-import pathlib
-import random
-import concurrent.futures
+import os, glob, yaml, json, shutil, math, re
 from multiprocessing import Pool, cpu_count
 from modules import sd_models
-from modules.processing import StableDiffusionProcessing
-from modules.processing import StableDiffusionProcessingTxt2Img
-from modules.processing import StableDiffusionProcessingImg2Img
+from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img
 from modules.shared import opts
 from copy import copy
 from PIL import Image
@@ -34,6 +23,8 @@ ImagesCache = None
 modelchange = {}
 logFile: str
 Version = '23.8.30'
+printLevel: int= 1
+grid = None
 
 ######################### Hooks #########################
 
@@ -62,15 +53,12 @@ def dataLog(message: str, doprint: bool, level: int) -> None:
 	with open(logFile, 'a+', encoding="utf-8") as f:
 		f.write(message)
 		f.write('\n')
-	if print:
-		if level == 0:
-			#print(message)
+	if print and printLevel < level:
+		if level == 0: #warning
 			print(Fore.RED + message + Style.RESET_ALL)
-		elif level == 1:
-			#print(message)
+		elif level == 1: #debug
 			print(Fore.BLUE + message + Style.RESET_ALL)
-		elif level == 2:
-			#print(message)
+		elif level == 2: #info
 			print(Fore.GREEN + message + Style.RESET_ALL)
 
 def cleanFilePath(fn: str) -> str:
@@ -494,7 +482,8 @@ class SingleGridCall:
 
 
 class GridRunner:
-	def __init__(self, grid: GridFileHelper, doOverwrite: bool, basePath: str, promptskey: StableDiffusionProcessing):
+	def __init__(self, doOverwrite: bool, basePath: str, promptskey: StableDiffusionProcessing):
+		global grid
 		self.grid = grid
 		self.totalRun = 0
 		self.totalSkip = 0
@@ -881,7 +870,8 @@ class WebDataBuilder():
 		html = html.replace("{TITLE}", grid.title).replace("{CLEAN_DESCRIPTION}", cleanForWeb(grid.description)).replace("{DESCRIPTION}", grid.description).replace("{CONTENT}", content).replace("{ADVANCED_SETTINGS}", advancedSettings).replace("{AUTHOR}", grid.author).replace("{EXTRA_FOOTER}", ExtraFooter).replace("{VERSION}", getVersion())
 		return html
 
-	def EmitWebData(path, grid, publish_gen_metadata, p, yamlContent, dryrun: bool):
+	def EmitWebData(path, publish_gen_metadata, p, yamlContent, dryrun: bool):
+		global grid
 		print("Building final web data...")
 		os.makedirs(path, exist_ok=True)
 		json = WebDataBuilder.buildJson(grid, publish_gen_metadata, p, dryrun)
@@ -904,6 +894,7 @@ class WebDataBuilder():
 ######################### Main Runner Function #########################
 
 def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
+	global grid
 	grid = GridFileHelper()
 	yamlContent = None
 	if manualPairs is None:
@@ -944,10 +935,10 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 		folder = outputFolderName
 	else:
 		folder = os.path.join(outputFolderBase, outputFolderName)
-	runner = GridRunner(grid, doOverwrite, folder, passThroughObj)
+	runner = GridRunner(doOverwrite, folder, passThroughObj)
 	runner.preprocess()
 	if generatePage:
-		json = WebDataBuilder.EmitWebData(folder, grid, publishGenMetadata, passThroughObj, yamlContent, dryRun)
+		json = WebDataBuilder.EmitWebData(folder, publishGenMetadata, passThroughObj, yamlContent, dryRun)
 	result = runner.run(dryRun)
 	if dryRun:
 		print("Infinite Grid dry run succeeded without error")

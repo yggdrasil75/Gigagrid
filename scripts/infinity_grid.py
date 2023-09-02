@@ -340,10 +340,10 @@ def tryInit():
 			registerMode("[DynamicThreshold] CFG Scale Minimum", GridSettingMode(dry=True, type="decimal", min=0.0, max=100.0, apply=applyField("dynthres_cfg_scale_min")))
 			registerMode("[DynamicThreshold] Experiment Mode", GridSettingMode(dry=True, type="decimal", min=0, max=1000000, apply=applyField("dynthres_experiment_mode")))
 			registerMode("[DynamicThreshold] scheduler Value", GridSettingMode(dry=True, type="decimal", min=0, max=100, apply=applyField("dynthres_scheduler_val")))
-			registerMode("[DynamicThreshold] Scaling Startpoint", GridSettingMode(dry=True, type="text", apply=apply_field("dynthres_scaling_startpoint"), valid_list=lambda: list(['ZERO', 'MEAN'])))
-			registerMode("[DynamicThreshold] Variability Measure", GridSettingMode(dry=True, type="text", apply=apply_field("dynthres_variability_measure"), valid_list=lambda: list(['STD', 'AD'])))
-			registerMode("[DynamicThreshold] Interpolate Phi", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=apply_field("dynthres_interpolate_phi")))
-			registerMode("[DynamicThreshold] Separate Feature Channels", GridSettingMode(dry=True, type="boolean", apply=apply_field("dynthres_separate_feature_channels")))
+			registerMode("[DynamicThreshold] Scaling Startpoint", GridSettingMode(dry=True, type="text", apply=applyField("dynthres_scaling_startpoint"), valid_list=lambda: list(['ZERO', 'MEAN'])))
+			registerMode("[DynamicThreshold] Variability Measure", GridSettingMode(dry=True, type="text", apply=applyField("dynthres_variability_measure"), valid_list=lambda: list(['STD', 'AD'])))
+			registerMode("[DynamicThreshold] Interpolate Phi", GridSettingMode(dry=True, type="decimal", min=0, max=1, apply=applyField("dynthres_interpolate_phi")))
+			registerMode("[DynamicThreshold] Separate Feature Channels", GridSettingMode(dry=True, type="boolean", apply=applyField("dynthres_separate_feature_channels")))
 		scriptList = [x for x in scripts.scripts_data if x.script_class.__module__ == "controlnet.py"][:1]
 		if len(scriptList) == 1:
 			# Hacky but works
