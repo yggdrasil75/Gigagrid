@@ -1,9 +1,9 @@
 # This file is part of Infinity Grid Generator, view the README.md at https://github.com/mcmonkeyprojects/sd-infinity-grid-generator-script for more information.
 
-import os, glob, yaml, json, shutil, math, re
+import os, glob, yaml, json, shutil, math, re, threading
 from multiprocessing import Pool, cpu_count
-from modules import sd_models
-from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img
+from modules import sd_models, images, processing
+from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img, Processed
 from modules.shared import opts
 from copy import copy
 from PIL import Image
@@ -22,7 +22,7 @@ validModes = {}
 ImagesCache = None
 modelchange = {}
 logFile: str
-Version = '23.8.30'
+Version:str = '23.9.5'
 printLevel: int= 1
 grid = None
 
@@ -50,6 +50,8 @@ def escapeHTML(text: str) -> str:
 	return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
 def dataLog(message: str, doprint: bool, level: int) -> None:
+	if not os.path.exists(logFile):
+		open(logFile, 'x')
 	with open(logFile, 'a+', encoding="utf-8") as f:
 		f.write(message)
 		f.write('\n')
@@ -186,7 +188,7 @@ class GridSettingMode:
 	'clean' is an optional function to call that takes (passthroughObject, value) and returns a cleaned copy of the value, or raises an error if invalid
 	'valid_list' is for text type, an optional lambda that returns a list of valid values
 	"""
-	def __init__(self, dry: bool, type: str, apply: callable, min: float = None, max: float = None, valid_list: callable = None, clean: callable = None):
+	def __init__(self, dry: bool, type: type, apply: callable, min: float = None, max: float = None, valid_list: callable = None, clean: callable = None):
 		self.dry = dry
 		self.type = type
 		self.apply = apply
@@ -226,7 +228,7 @@ def validateSingleParam(p: str, v):
 	if mode is None:
 		raise RuntimeError(f"Invalid grid parameter '{p}': unknown mode")
 	modeType = mode.type
-	if modeType == "integer":
+	if modeType == int:
 		vInt = int(v)
 		if vInt is None:
 			raise RuntimeError(f"Invalid parameter '{p}' as '{v}': must be an integer number")
@@ -237,7 +239,7 @@ def validateSingleParam(p: str, v):
 		if max is not None and vInt > max:
 			raise RuntimeError(f"Invalid parameter '{p}' as '{v}': must not exceed {max}")
 		v = vInt
-	elif modeType == "decimal":
+	elif modeType == float:
 		vFloat = float(v)
 		if vFloat is None:
 			raise RuntimeError(f"Invalid parameter '{p}' as '{v}': must be a decimal number")
@@ -248,7 +250,7 @@ def validateSingleParam(p: str, v):
 		if max is not None and vFloat > max:
 			raise RuntimeError(f"Invalid parameter '{p}' as '{v}': must not exceed {max}")
 		v = vFloat
-	elif modeType == "boolean":
+	elif modeType == bool:
 		vClean = str(v).lower().strip()
 		if vClean == "true":
 			v = True
@@ -256,7 +258,7 @@ def validateSingleParam(p: str, v):
 			v = False
 		else:
 			raise RuntimeError(f"Invalid parameter '{p}' as '{v}': must be either 'true' or 'false'")
-	elif modeType == "text" and mode.valid_list is not None:
+	elif modeType == str and mode.valid_list is not None:
 		validList = mode.valid_list()
 		v = getBestInList(cleanName(v), validList)
 		if v is None:
@@ -355,10 +357,10 @@ class Axis:
 				self.buildFromListStr(id, grid, valuesObj)
 			else:
 				for key, val in valuesObj.items():
-					try:
+					#try:
 						self.values.append(AxisValue(self, grid, key, val))
-					except Exception as e:
-						raise RuntimeError(f"value '{key}' errored: {e}")
+					#except Exception as e:
+					#	raise RuntimeError(f"value '{key}' errored: {e}")
 
 class GridFileHelper:
 	def procVariables(self, text) -> str | None:
@@ -461,12 +463,12 @@ class SingleGridCall:
 		if gridCallInitHook is not None:
 			gridCallInitHook(self)
 
-	def flattenParams(self, grid: GridFileHelper):
-		self.grid = grid
+	def flattenParams(self):
+		global grid
 		self.params = grid.params.copy() if grid.params is not None else dict()
 		for val in self.values:
 			for p, v in val.params.items():
-				if gridCallParamAddHook is None or not gridCallParamAddHook(self, p, v):
+				if gridCallParamAddHook is None or not gridCallParamAddHook(self, grid, p, v):
 					self.params[p] = v
 
 	def applyTo(self, p: StableDiffusionProcessing, dry: bool):
@@ -537,7 +539,7 @@ class GridRunner:
 		for set in self.valueSetsTemp:
 			set.filepath = self.basePath + '/' + '/'.join(list(map(lambda v: cleanName(v.key), set.values)))
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
-			set.flattenParams(self.grid)
+			set.flattenParams()
 			if set.skip:
 				#print('skipping in preprocess')
 				self.totalSkip += 1
@@ -567,8 +569,7 @@ class GridRunner:
 			f.write(message)
 			f.write('\n')
 		print(message)
-			
-	
+				
 	def run(self, dry: bool):
 		starttime = datetime.datetime.now()
 		if gridRunnerPreRunHook is not None:
@@ -592,29 +593,55 @@ class GridRunner:
 			dataLog(f'\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth', False, 0)
 			prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
 			for i, p2 in enumerate(prompt_batch_list):
+				appliedsets = self.applied_sets[id(p2)]
 				#print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
 				#p2 = StableDiffusionProcessing(p2)
+				start2 = datetime.datetime.now()
+				print(f"start time: {start2}")
 				if id(p2) in modelchange.keys():
 					lateapplyModel(p2,modelchange[id(p2)])
 				if gridRunnerPreDryHook is not None:
 					gridRunnerPreDryHook(self)
 				try:
-					start2 = datetime.datetime.now()
-					try:
-						last = gridRunnerRunPostDryHook(self, p2, self.applied_sets[id(p2)])
-					except FileNotFoundError as e:
-						if e.strerror == 'The filename or extension is too long' and hasattr(e, 'winerror') and e.winerror == 206:
-							print(f"\n\n\nOS Error: {e.strerror} - see this article to fix that: https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/The-Windows-10-default-path-length-limitation-MAX-PATH-is-256-characters.html \n\n\n")
-						raise e
+					last = gridRunnerRunPostDryHook(self, p2, appliedsets)
 					#self.updateLiveFile(set.filepath + "." + self.grid.format)
-					end2 = datetime.datetime.now()
-					steptotal = (end2 - start2).total_seconds()
-					print(f'the last batch took {steptotal:.2f} for {p2.batch_size} images. an average generation speed of {steptotal / p2.batch_size} per image, and {steptotal / p2.batch_size / p2.steps} seconds per image step')
-					dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)
 				except Exception as e: 
 					print("image failed to generate. please restart later")
 					print(f"exception: {e}")
 					continue
+				try:
+					if p2.hasPostProcessing:
+						try:
+							PostHandler(self, p2, self.applied_sets[id(p2)])
+							print("Post Processing")
+						except Exception as e:
+							print("Image postprocessing has failed.")
+							print(f'error is: {e}' )
+				except:
+					print("no post processing")
+				#try:
+				def saveOffThread():
+					for iterator, p3 in enumerate(last.images):
+						set = list(appliedsets)[iterator]
+						savepath = set.filepath
+						try:
+							print(f"saving to: {os.path.dirname(set.filepath)}\\{os.path.basename(set.filepath)}")
+							images.save_image(image=p3,path=os.path.dirname(set.filepath),basename="", forced_filename=os.path.basename(set.filepath), save_to_dirs=False, 
+						 						info=processing.create_infotext(p=p2,all_prompts=p2.all_prompts, all_seeds=p2.all_seeds, all_subseeds=p2.all_subseeds,
+										  										comments="", iteration=iterator,position_in_batch=iterator, index=iterator, all_negative_prompts=p2.all_negative_prompts),
+												extension=grid.format, p=p2,prompt=p2.prompt[iterator], seed=p2.all_seeds[iterator])
+							#images.save_image(image=p3, path=os.path.dirname(set.filepath), basename="", forced_filename=os.path.basename(set.filepath), info=processing.create_infotext(p3, [p3.prompt], [p3.seed], [p3.subseed], []), extension=GridRunner.grid.format, p=p3, prompt=p3.prompt, seed=last.seed)
+						except FileNotFoundError as e:
+							if e.strerror == 'The filename or extension is too long' and hasattr(e, 'winerror') and e.winerror == 206:
+								print(f"\n\n\nOS Error: {e.strerror} - see this article to fix that: https://www.autodesk.com/support/technical/article/caas/sfdcarticles/sfdcarticles/The-Windows-10-default-path-length-limitation-MAX-PATH-is-256-characters.html \n\n\n")
+							raise e
+				threading.Thread(target=saveOffThread).start()
+				#except Exception as e:
+				#	print(f"failed while saving: {e}")
+				end2 = datetime.datetime.now()
+				steptotal = (end2 - start2).total_seconds()
+				print(f'the last batch took {steptotal:.2f} for {p2.batch_size} images. an average generation speed of {steptotal / p2.batch_size} per image, and {steptotal / p2.batch_size / p2.steps} seconds per image step')
+				dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)
 		endtime = datetime.datetime.now()
 		dataLog(f'time taken: {(endtime - starttime).total_seconds():.2f}', True, 2)
 		return last
@@ -723,7 +750,8 @@ class GridRunner:
 
 
 
-
+def PostHandler(gridRunner: GridRunner, promptkey: StableDiffusionProcessing, appliedsets: dict) -> Processed:
+	return
 ######################### Web Data Builders #########################
 
 class WebDataBuilder():
@@ -894,7 +922,7 @@ class WebDataBuilder():
 ######################### Main Runner Function #########################
 
 def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
-	global grid
+	global grid, logFile
 	grid = GridFileHelper()
 	yamlContent = None
 	if manualPairs is None:
@@ -936,6 +964,7 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 	else:
 		folder = os.path.join(outputFolderBase, outputFolderName)
 	runner = GridRunner(doOverwrite, folder, passThroughObj)
+	logFile = os.path.join(folder,'log.txt')
 	runner.preprocess()
 	if generatePage:
 		json = WebDataBuilder.EmitWebData(folder, publishGenMetadata, passThroughObj, yamlContent, dryRun)
