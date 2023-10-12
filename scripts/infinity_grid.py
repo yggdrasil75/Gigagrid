@@ -12,20 +12,15 @@
 ##################
 
 import gradio as gr
-import os
-import numpy
-import threading
-import ctypes
+import os, numpy, threading, ctypes, json, torch, hashlib, datetime
 from copy import copy
-from datetime import datetime
 from modules import images, shared, sd_models, sd_vae, sd_samplers, scripts, processing, ui_components
 from modules.processing import StableDiffusionProcessing, process_images, Processed
 from modules.shared import opts, state
 from PIL import Image
 import gridgencore as core
-from gridgencore import cleanName, getBestInList, chooseBetterFileName, GridSettingMode, fixNum, applyField, registerMode
-import json
-import torch
+from gridgencore import getBestInList, cleanName, cleanModeName, chooseBetterFileName, GridSettingMode, fixNum, applyField, registerMode
+from colorama import init as CInit, Fore, Style
 
 ######################### Constants #########################
 refresh_symbol = '\U0001f504'  # 🔄
@@ -37,6 +32,9 @@ cplist = {}
 faceRestorList = {}
 adetailer = None
 
+########################## Utilities ##########################
+
+
 ######################### Value Modes #########################
 
 def getModelFor(name):
@@ -44,9 +42,6 @@ def getModelFor(name):
 	if not (cplist and len(cplist) > 0):
 		cplist = list(map(lambda m: m.title, sd_models.checkpoints_list.values()))
 	return getBestInList(name, cplist)
-
-def applyStyles(p,v:str):
-	p.styles = list(v.split(','))
 
 def applyModel(p, v):
 	global cplist
@@ -63,6 +58,9 @@ def cleanModel(p, v):
 	if actualModel is None:
 		raise RuntimeError(f"Invalid parameter '{p}' as '{v}': model name unrecognized - valid {list(cplist)}")
 	return chooseBetterFileName(v, actualModel)
+
+def applyStyles(p,v:str):
+	p.styles = list(v.split(','))
 
 def getVaeFor(name):
 	vaeList = sd_vae.vae_dict.keys()
@@ -297,11 +295,11 @@ def tryInit():
 	core.gridRunnerPreDryHook = a1111GridRunnerPreDryHook
 	core.gridRunnerRunPostDryHook = a1111GridRunnerPostDryHook
 	core.webDataGetBaseParamData = a1111WebDataGetBaseParamData
-	registerMode("Model", GridSettingMode(dry=False, type=str, apply=applyModel, clean=cleanModel, valid_list=lambda: list(map(lambda m: m.title, sd_models.checkpoints_list.values()))))
-	registerMode("VAE", GridSettingMode(dry=False, type=str, apply=applyVae, clean=cleanVae, valid_list=lambda: list(sd_vae.vae_dict.keys()) + ['none', 'auto', 'automatic']))
-	registerMode("Sampler", GridSettingMode(dry=True, type=str, apply=applyField("sampler_name"), valid_list=lambda: list(sd_samplers.all_samplers_map.keys())))
+	registerMode("Model", GridSettingMode(dry=False, type=str, apply=applyModel, clean=cleanModel, validList=lambda: list(map(lambda m: m.title, sd_models.checkpoints_list.values()))))
+	registerMode("VAE", GridSettingMode(dry=False, type=str, apply=applyVae, clean=cleanVae, validList=lambda: list(sd_vae.vae_dict.keys()) + ['none', 'auto', 'automatic']))
+	registerMode("Sampler", GridSettingMode(dry=True, type=str, apply=applyField("sampler_name"), validList=lambda: list(sd_samplers.all_samplers_map.keys())))
 	registerMode("ClipSkip", GridSettingMode(dry=False, type=int, min=1, max=12, apply=apply_setting_override("CLIP_stop_at_last_layers")))
-	registerMode("Restore Faces", GridSettingMode(dry=True, type=str, apply=applyRestoreFaces, valid_list=lambda: list(map(lambda m: m.name(), shared.face_restorers)) + ["true", "false"]))
+	registerMode("Restore Faces", GridSettingMode(dry=True, type=str, apply=applyRestoreFaces, validList=lambda: list(map(lambda m: m.name(), shared.face_restorers)) + ["true", "false"]))
 	registerMode("CodeFormer Weight", GridSettingMode(dry=True, type=float, min=0, max=1, apply=applyCodeformerWeight))
 	registerMode("ETA Noise Seed Delta", GridSettingMode(dry=True, type=int, apply=apply_setting_override("eta_noise_seed_delta")))
 	registerMode("Enable HighRes Fix", GridSettingMode(dry=True, type=bool, apply=applyEnableHr))
@@ -321,7 +319,7 @@ def tryInit():
 	for field, mode in enumerate(modes):
 		registerMode(mode, GridSettingMode(dry=True, type=str, apply=applyField(fields[field])))
 	
-	registerMode("Styles", GridSettingMode(dry=True, type=str, apply=applyStyles, valid_list=lambda: list(shared.prompt_styles.styles)))
+	registerMode("Styles", GridSettingMode(dry=True, type=str, apply=applyStyles, validList=lambda: list(shared.prompt_styles.styles)))
 	registerMode("batch size", GridSettingMode(dry=True, type=str, apply=setbatch))
 	registerMode("Steps", GridSettingMode(dry=True, type=int, min=0, max=200, apply=applyField("steps")))
 	registerMode("CFG Scale", GridSettingMode(dry=True, type=float, min=0, max=500, apply=applyField("cfg_scale")))
@@ -342,7 +340,7 @@ def tryInit():
 	registerMode("HighRes Resize Height", GridSettingMode(dry=True, type=int, apply=applyField("hr_resize_y")))
 	registerMode("HighRes Upscale to Width", GridSettingMode(dry=True, type=int, apply=applyField("hr_upscale_to_x")))
 	registerMode("HighRes Upscale to Height", GridSettingMode(dry=True, type=int, apply=applyField("hr_upscale_to_y")))
-	registerMode("HighRes Upscaler", GridSettingMode(dry=True, type=str, apply=applyField("hr_upscaler"), valid_list=lambda: list(map(lambda u: u.name, shared.sd_upscalers)) + list(shared.latent_upscale_modes.keys())))
+	registerMode("HighRes Upscaler", GridSettingMode(dry=True, type=str, apply=applyField("hr_upscaler"), validList=lambda: list(map(lambda u: u.name, shared.sd_upscalers)) + list(shared.latent_upscale_modes.keys())))
 	registerMode("Image CFG Scale", GridSettingMode(dry=True, type=float, min=0, max=500, apply=applyField("image_cfg_scale")))
 	registerMode("Use Result Index", GridSettingMode(dry=True, type=int, min=0, max=500, apply=applyField("inf_grid_use_result_index")))
 
@@ -353,14 +351,14 @@ def tryInit():
 			registerMode("[DynamicThreshold] Enable", GridSettingMode(dry=True, type=bool, apply=applyField("dynthres_enabled")))
 			registerMode("[DynamicThreshold] Mimic Scale", GridSettingMode(dry=True, type=float, min=0, max=500, apply=applyField("dynthres_mimic_scale")))
 			registerMode("[DynamicThreshold] Threshold Percentile", GridSettingMode(dry=True, type=float, min=0.0, max=100.0, apply=applyField("dynthres_threshold_percentile")))
-			registerMode("[DynamicThreshold] Mimic Mode", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_mimic_mode"), valid_list=lambda: list(dynamic_thresholding.VALID_MODES)))
-			registerMode("[DynamicThreshold] CFG Mode", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_cfg_mode"), valid_list=lambda: list(dynamic_thresholding.VALID_MODES)))
+			registerMode("[DynamicThreshold] Mimic Mode", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_mimic_mode"), validList=lambda: list(dynamic_thresholding.VALID_MODES)))
+			registerMode("[DynamicThreshold] CFG Mode", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_cfg_mode"), validList=lambda: list(dynamic_thresholding.VALID_MODES)))
 			registerMode("[DynamicThreshold] Mimic Scale Minimum", GridSettingMode(dry=True, type=float, min=0.0, max=100.0, apply=applyField("dynthres_mimic_scale_min")))
 			registerMode("[DynamicThreshold] CFG Scale Minimum", GridSettingMode(dry=True, type=float, min=0.0, max=100.0, apply=applyField("dynthres_cfg_scale_min")))
 			registerMode("[DynamicThreshold] Experiment Mode", GridSettingMode(dry=True, type=float, min=0, max=1000000, apply=applyField("dynthres_experiment_mode")))
 			registerMode("[DynamicThreshold] scheduler Value", GridSettingMode(dry=True, type=float, min=0, max=100, apply=applyField("dynthres_scheduler_val")))
-			registerMode("[DynamicThreshold] Scaling Startpoint", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_scaling_startpoint"), valid_list=lambda: list(['ZERO', 'MEAN'])))
-			registerMode("[DynamicThreshold] Variability Measure", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_variability_measure"), valid_list=lambda: list(['STD', 'AD'])))
+			registerMode("[DynamicThreshold] Scaling Startpoint", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_scaling_startpoint"), validList=lambda: list(['ZERO', 'MEAN'])))
+			registerMode("[DynamicThreshold] Variability Measure", GridSettingMode(dry=True, type=str, apply=applyField("dynthres_variability_measure"), validList=lambda: list(['STD', 'AD'])))
 			registerMode("[DynamicThreshold] Interpolate Phi", GridSettingMode(dry=True, type=float, min=0, max=1, apply=applyField("dynthres_interpolate_phi")))
 			registerMode("[DynamicThreshold] Separate Feature Channels", GridSettingMode(dry=True, type=bool, apply=applyField("dynthres_separate_feature_channels")))
 		scriptList = [x for x in scripts.scripts_data if x.script_class.__module__ == "controlnet.py"][:1]
@@ -373,14 +371,14 @@ def tryInit():
 					raise RuntimeError("ControlNet options cannot currently work, you must enable 'Allow other script to control this extension' in Settings -> ControlNet first")
 				return v
 			registerMode("[ControlNet] Enable", GridSettingMode(dry=True, type=bool, apply=applyField("control_net_enabled"), clean=validateParam))
-			registerMode("[ControlNet] Preprocessor", GridSettingMode(dry=True, type=str, apply=applyField("control_net_module"), clean=validateParam, valid_list=lambda: list(preprocessors_list)))
-			registerMode("[ControlNet] Model", GridSettingMode(dry=True, type=str, apply=applyField("control_net_model"), clean=validateParam, valid_list=lambda: list(list(module.cn_models.keys()))))
+			registerMode("[ControlNet] Preprocessor", GridSettingMode(dry=True, type=str, apply=applyField("control_net_module"), clean=validateParam, validList=lambda: list(preprocessors_list)))
+			registerMode("[ControlNet] Model", GridSettingMode(dry=True, type=str, apply=applyField("control_net_model"), clean=validateParam, validList=lambda: list(list(module.cn_models.keys()))))
 			registerMode("[ControlNet] Weight", GridSettingMode(dry=True, type=float, min=0.0, max=2.0, apply=applyField("control_net_weight"), clean=validateParam))
 			registerMode("[ControlNet] Guidance Strength", GridSettingMode(dry=True, type=float, min=0.0, max=1.0, apply=applyField("control_net_guidance_strength"), clean=validateParam))
 			registerMode("[ControlNet] Annotator Resolution", GridSettingMode(dry=True, type=int, min=0, max=2048, apply=applyField("control_net_pres"), clean=validateParam))
 			registerMode("[ControlNet] Threshold A", GridSettingMode(dry=True, type=int, min=0, max=256, apply=applyField("control_net_pthr_a"), clean=validateParam))
 			registerMode("[ControlNet] Threshold B", GridSettingMode(dry=True, type=int, min=0, max=256, apply=applyField("control_net_pthr_b"), clean=validateParam))
-			registerMode("[ControlNet] Image", GridSettingMode(dry=True, type=str, apply=core.applyFieldAsImageData("control_net_input_image"), clean=validateParam, valid_list=lambda: core.listImageFiles()))
+			registerMode("[ControlNet] Image", GridSettingMode(dry=True, type=str, apply=core.applyFieldAsImageData("control_net_input_image"), clean=validateParam, validList=lambda: core.listImageFiles()))
 		#scriptList = [x for x in scripts.scripts_data if x.script_class.__module__ == "!adetailer.py"][:1]
 		#if len(scriptList) == 1:
 		#	global adetailer
@@ -431,7 +429,7 @@ def a1111GridCallParamAddHook(gridCall: core.SingleGridCall,grid, p: str, v: str
 		grid.minWidth = grid.initialPromptskey.width
 	if grid.minHeight is None:
 		grid.minHeight = grid.initialPromptskey.height
-	tempstring = cleanName(p)
+	tempstring = cleanModeName(p)
 	if tempstring.startswith('promptreplace'):
 		gridCall.replacements.append(v)
 		return True
@@ -594,8 +592,7 @@ class Script(scripts.Script):
 									row_value = gr.Textbox(label=f"Axis {axisCount} Value", lines=1)
 									fill_row_button = ui_components.ToolButton(value=fill_values_symbol, visible=False)
 									def fillAxis(modeName):
-										core.clearCaches()
-										mode = core.validModes.get(cleanName(modeName))
+										mode = core.validModes.get(cleanModeName(modeName))
 										if mode is None:
 											return gr.update()
 										elif mode.type == "boolean":
@@ -605,9 +602,9 @@ class Script(scripts.Script):
 										raise RuntimeError(f"Can't fill axis for {modeName}")
 									fill_row_button.click(fn=fillAxis, inputs=[row_mode], outputs=[row_value])
 									def onAxisChange(modeName, outFile):
-										mode = core.validModes.get(cleanName(modeName))
+										mode = core.validModes.get(cleanModeName(modeName))
 										buttonUpdate = gr.Button.update(visible=mode is not None and (mode.valid_list is not None or mode.type == "boolean"))
-										outFileUpdate = gr.Textbox.update() if outFile != "" else gr.Textbox.update(value=f"autonamed_inf_grid_{datetime.now().strftime('%m_%d_%Y_%H_%M_%S')}")
+										outFileUpdate = gr.Textbox.update() if outFile != "" else gr.Textbox.update(value=f"autonamed_inf_grid_{datetime.datetime.now().strftime('%m_%d_%Y_%H_%M_%S')}")
 										notice = update_page_url(outFile, None)
 										return [buttonUpdate, outFileUpdate, notice]
 									row_mode.change(fn=onAxisChange, inputs=[row_mode, output_file_path], outputs=[fill_row_button, output_file_path, page_will_be])
@@ -642,12 +639,12 @@ class Script(scripts.Script):
 		return [do_overwrite, generate_page, dry_run, validate_replace, publish_gen_metadata, grid_file, output_file_path] + manualAxes
 
 	def run(self, p, do_overwrite, generate_page, dry_run, validate_replace, publish_gen_metadata, grid_file, output_file_path, *manualAxes):
-		core.clearCaches()
+		starttime = datetime.datetime.now()
+		print(f"The full process has started at {starttime}")
 		tryInit()
 		# Clean up default params
 		p = copy(p)
 		p.n_iter = 1
-		#p.batch_size = 1
 		p.do_not_save_samples = True
 		p.do_not_save_grid = True
 		p.seed = processing.get_fixed_seed(p.seed)
@@ -665,6 +662,8 @@ class Script(scripts.Script):
 		else:
 			manualAxes = None
 		#core.logFile = os.path.join(output_file_path, 'log.txt')
+		p1time = datetime.datetime.now()
+		print(f"finished everything before running in {(p1time - starttime).total_seconds():.2f}")
 		with SettingsFixer():
 			result = core.runGridGen(p, grid_file, p.outpath_grids, output_file_path, do_overwrite, generate_page, publish_gen_metadata, dry_run, manualAxes)
 		if result is None:
