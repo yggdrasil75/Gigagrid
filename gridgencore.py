@@ -5,7 +5,7 @@ from multiprocessing import Pool, cpu_count as cpuCount
 from modules import sd_models as sdModels, images, processing
 from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img, Processed
 from modules.shared import opts
-from copy import copy
+from copy import copy, deepcopy
 from PIL import Image
 from git import Repo
 from colorama import init as CInit, Fore, Style
@@ -580,17 +580,25 @@ class GridRunner:
 		iteration = 0
 		promptBatchList = []
 		if not dry:
+			threads = []
 			for set in self.valueSets:
-				if set.skip:
-					continue
-				iteration += 1
-				#if not dry:
-				threading.Thread(target=dataLog(f'[mainRun] On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}', True, 1)).start()
-				p2 = copy(self.promptskey)
-				set.applyTo(p2, dry)
-				promptBatchList.append(p2)
-				#self.appliedSets.add()
-				self.appliedSets[id(p2)] = self.appliedSets.get(id(p2), []) + [set]
+				def setupphase():
+					if set.skip:
+						continue
+					iteration += 1
+					#if not dry:
+					threading.Thread(target=dataLog(f'[mainRun] On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}', True, 1)).start()
+					p2 = copy(self.promptskey)
+					set.applyTo(p2, dry)
+					with lock:
+						promptBatchList.append(p2)
+						#self.appliedSets.add()
+						self.appliedSets[id(p2)] = self.appliedSets.get(id(p2), []) + [set]
+				thread = threading.Thread(target=setupphase)
+				threads.append(thread)
+				thread.start()
+			for thread in threads: 
+				thread.join()
 			threading.Thread(target=dataLog(f'[mainRun] setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now', True, 1)).start()
 			threading.Thread(target=dataLog(f'[mainRun]\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth', False, 0)).start()
 			promptBatchList = self.BatchPrompts(promptBatchList, self.promptskey)
@@ -622,12 +630,16 @@ class GridRunner:
 				except:
 					print("no post processing")
 					
-				for iterator, img in enumerate(last.images):
-					set = list(appliedsets)[iterator]
-					threading.Thread(target=dataLog(f"saving to {set.filepath}", True, 1)).start()
-					images.save_image(img, path=os.path.dirname(set.filepath), basename="",
-						forced_filename=os.path.basename(set.filepath), save_to_dirs=False,
-						extension=grid.format, p=p2, prompt=p2.prompt[iterator],seed=last.seed)
+
+				def saveOffThread():
+					aset = deepcopy(appliedsets)
+					for iterator, img in enumerate(last.images):
+						set = list(aset)[iterator]
+						threading.Thread(target=dataLog(f"saving to {set.filepath}", True, 1)).start()
+						images.save_image(img, path=os.path.dirname(set.filepath), basename="",
+							forced_filename=os.path.basename(set.filepath), save_to_dirs=False,
+							extension=grid.format, p=p2, prompt=p2.prompt[iterator],seed=last.seed)
+				threading.Thread(target=saveOffThread).start()
 				#def saveOffThread():
 				#	try:
 				#		for iterator, img in enumerate(last.images):
