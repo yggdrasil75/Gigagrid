@@ -62,7 +62,7 @@ class Script(scripts.Script):
 		if __file__.endswith('.pyc'):
 			return "Gigagrid (compiled)"
 		else:
-			return "Gigagrid"
+			return "gigagrid - in dev."
 	
 	def show(self, is_img2img) -> bool:
 		if is_img2img: return False
