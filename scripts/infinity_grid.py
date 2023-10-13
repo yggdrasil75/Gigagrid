@@ -199,7 +199,7 @@ def getarch() -> str:
 
 	return SEMVER_TO_ARCH.get((cc_major.value, cc_minor.value), 'unknown')
 		
-def setbatch(p, v):
+def setbatch(p, v: str):
 	# Load the model information from the JSON file
 	# Get the absolute path of the directory in which the script is running
 	dir_path = os.path.abspath(os.path.dirname(__file__))
@@ -215,7 +215,10 @@ def setbatch(p, v):
 	#print(architecture)
 	ram = torch.cuda.get_device_properties(torch.cuda.current_device).total_memory / 1024**3  # Convert to GB
 
-	if v == 'bytype':
+	if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
+		if isinstance(v,str): v = int(v)
+		p.batch_size = v
+	elif v == 'bytype':
 		# Search the models list for a matching brand and architecture
 		for model in models_data['models']:
 			if model['brand'].lower() == gpu.split()[0].lower():
@@ -257,9 +260,6 @@ def setbatch(p, v):
 		else:
 			# No matching GPU ID found, default to batch size of 1
 			p.batch_size = 1
-	elif isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
-		if isinstance(v,str): v = int(v)
-		p.batch_size = v
 	else:
 		# Invalid input value, default to batch size of 1
 		p.batch_size = 1
@@ -541,7 +541,10 @@ class Script(scripts.Script):
 	VALIDATE_REPLACE = True
 
 	def title(self) -> str:
-		return "Generate Infinite-Axis Grid v2"
+		if __file__.endswith('.pyc'):
+			return "Generate Infinite-Axis Grid (compiled)"
+		else:
+			return "Generate Infinite-Axis Grid v2"
 
 	def show(self, is_img2img) -> bool:
 		return True
