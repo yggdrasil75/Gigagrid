@@ -544,7 +544,7 @@ class Script(scripts.Script):
 		if __file__.endswith('.pyc'):
 			return "Generate Infinite-Axis Grid (compiled)"
 		else:
-			return "Generate Infinite-Axis Grid (decompiled)"
+			return "Generate Infinite-Axis Grid v2"
 
 	def show(self, is_img2img) -> bool:
 		return True
