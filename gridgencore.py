@@ -109,8 +109,10 @@ def listImageFiles():
 
 def getNameList() -> list[str]:
 	fileList = glob.glob(AssetDir + "/*.yml")
+	fileList.extend(glob.glob(opts.outdir_txt2img_grids + "/*.yml"))
+	fileList.extend(glob.glob(opts.outdir_grids + "/*.yml"))
+	fileList.extend(glob.glob(opts.outdir_img2img_grids + "/*.yml"))
 	justFileNames = sorted(list(map(lambda f: os.path.relpath(f, AssetDir), fileList)))
-	
 	return justFileNames
 
 def fixDict(d: dict):
@@ -826,7 +828,6 @@ class GridRunner:
 	#				try:
 	#					if getattr(tempPrompt, attr) == getattr(baseProm, attr): continue
 	#					else: 
-	#						fail = True
 	#						if iterator == 1: 
 	#							dataLog(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempPrompt, attr))}", False, 0)
 	#						dataLog(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(baseProm, attr))}", False, 0)
