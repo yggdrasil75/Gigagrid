@@ -53,60 +53,50 @@ webDataGetBaseParamData: callable = None
 ######################### Utilities #########################
 
 class quickCache:
-	def __init__(self,maxsize:int,localcache, periodicTime=600):
+	def __init__(self,maxsize:int=1000,localcache: str | None=None, periodicTime=600):
 		global cacheFile
-		self.maxSize = 1000
 		self.cache = {}
 		self.inited = False
 		
+		self.cacheFile = localcache or cacheFile
+		#print(f"{self.cacheFile}, {localcache}" )
+		self.cachePath = os.path.dirname(os.path.realpath(self.cacheFile))
+		if not os.path.exists(self.cachePath):
+			os.makedirs(self.cachePath) 
+		self.maxSize = maxsize
+		self.inited = True
 		self.lock = threading.Lock()
+		self.periodicTime = periodicTime
+		self.periodicCacheWrite()
+		
 		try:
 			self.loadCache()
 		except:
 			pass
 		#self.periodicCacheWrite()
 
-	
-	def __call__(self,maxsize:int,localcache, periodicTime=600) ->callable:
-		if not self.inited:
-			if localcache is not None:
-				self.cacheFile = localcache
-			else: self.cacheFile = cacheFile
-			print(f"{self.cacheFile}, {localcache}" )
-			self.cachePath = os.path.dirname(os.path.realpath(self.cacheFile))
-			if not os.path.exists(self.cachePath): os.makedirs(self.cachePath) 
-			self.backupFile = self.cacheFile + "." + "bak"
-			self.maxSize = maxsize
-			self.inited = True
-			self.loadCache()
-			self.periodicCacheWrite(periodicTime)
-		return self.decorator(maxsize)
+	def __call__(self, func) ->callable:
+		return self.decorator(func)
 
 	def loadCache(self):
 		if os.path.exists(self.cacheFile):
 			try:
 				with open(self.cacheFile, 'rb') as file:
-					self.cache = pickle.load(file)
+					tempcache = pickle.load(file)
+					self.cache.update(tempcache)
 			except Exception as e:
 				print(f"failed to load cache: {e}")
+		return self.cache
 
 	def saveCache(self):
 		with self.lock:
-			try:
-				with open(self.cacheFile, 'rb') as file:
-					tempCache = pickle.load(file)
-				tempCache.update(self.cache)
-			except:
-				tempCache = self.cache
+			self.loadCache()
 			with open(self.cacheFile, 'wb') as file:
-				pickle.dump(tempCache,file)
-			with open(self.backupFile, 'wb') as backup:
-				pickle.dump(tempCache,backup)
+				pickle.dump(self.cache,file)
 
 	
-	def periodicCacheWrite(self, periodicTime):
-		interval = periodicTime
-		threading.Timer(interval, self.periodicCacheWrite).start()
+	def periodicCacheWrite(self):
+		threading.Timer(self.periodicTime, self.periodicCacheWrite).start()
 		self.saveCache()
 
 	def decorator(self, func):
@@ -123,11 +113,14 @@ class quickCache:
 			if key in self.cache:
 				return self.cache[key]
 			result = func(*args, **kwargs)
-			if len(self.cache) >= self.maxsize:
-				# Remove the oldest entry to make room for a new one.
-				self.cache.pop(next(iter(self.cache)))
-			self.cache[key] = result
+			with self.lock:
+				if len(self.cache) >= self.maxSize:
+					# Remove the oldest entry to make room for a new one.
+					self.cache.pop(next(iter(self.cache)))
+				self.cache[key] = result
+			#self.saveCache()
 			return result
+		return wrapper
 
 #@quickCache(maxsize=1000)
 def escapeHTML(text: str) -> str:
@@ -160,6 +153,8 @@ def datalogNew(folder):
 	for i in range(5, 1, -1):
 		src = os.path.join(folder, f'log{i - 1}.txt')
 		dest = os.path.join(folder, f'log{i}.txt')
+		if dest.endswith("log5.txt") and os.path.exists(dest):
+			os.remove(dest)
 		if os.path.exists(src):
 			os.rename(src, dest)
 
@@ -236,7 +231,7 @@ def cleanForWeb(text: str):
 def cleanId(id: str) -> str:
 	return re.sub("[^a-z0-9]", "_", id.lower().strip())
 
-@quickCache(1000, "./cache/modeNameCache.y")
+#@quickCache(1000, "./cache/modeNameCache.y")
 def cleanModeName(name: str) -> str:
     return name.lower().replace('[', '').replace(']', '').replace(' ', '').replace('\\', '/').replace('//', '/').strip()
 	
@@ -351,7 +346,7 @@ def registerMode(name: str, mode: GridSettingMode):
 
 ######################### Validation #########################
 
-@quickCache(maxsize=1000)
+#@quickCache(maxsize=1000, localcache="./cache/validParams")
 def validateParams(grid, params: dict):
 	global paramcache
 	phash = hashlib.blake2s(str(params).encode()).hexdigest()
@@ -362,7 +357,7 @@ def validateParams(grid, params: dict):
 			params[p] = validateSingleParam(p, grid.procVariables(v))
 		paramcache.append(phash)
 
-@quickCache(maxsize=1000)
+#@quickCache(maxsize=1000, localcache="./cache/validateParams")
 def validateSingleParam(p: str, value):
 	p = cleanModeName(p)
 	mode = validModes.get(p)
@@ -600,7 +595,7 @@ class SingleGridCall:
 				if gridCallParamAddHook is None or not gridCallParamAddHook(self, grid, p, v):
 					self.params[p] = v
 	
-	@quickCache(maxsize=100000, oldCache=cacheFile)
+	@quickCache(maxsize=100000, localcache="./cache/apply", periodicTime=10)
 	def applyTo(self, p: StableDiffusionProcessing, dry: bool):
 		for name, val in self.params.items():
 			mode = validModes[cleanModeName(name)]
@@ -1156,12 +1151,12 @@ class WebDataBuilder():
 ######################### Main Runner Function #########################
 
 def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
-	global grid, logFile
+	global grid, logFile, cacheFile
 	startTime = datetime.datetime.now()
 	grid = GridFileHelper()
 	yamlContent = None
 	if manualPairs is None:
-		fullInputPath = AssetDir + "/" + inputFile
+		fullInputPath = os.path.realpath(os.path.join(AssetDir, inputFile))
 		if not os.path.exists(fullInputPath):
 			raise RuntimeError(f"Non-existent file '{inputFile}'")
 		# Parse and verify
@@ -1170,7 +1165,7 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 				yamlContent = yaml.safe_load(yamlContentText)
 			except yaml.YAMLError as exc:
 				raise RuntimeError(f"Invalid YAML in file '{inputFile}': {exc}")
-		grid.parseYaml(yamlContent, inputFile)
+			grid.parseYaml(yamlContent, inputFile)
 	else:
 		grid.title = outputFolderName
 		grid.description = ""
