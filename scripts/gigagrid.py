@@ -1,18 +1,18 @@
 
 #imports
-from modules import scripts
-import os, concurrent.futures, gradio as gr, glob, hashlib, threading, re
-from modules import sd_models as sdModels
+import os, concurrent.futures, gradio as gr, glob, hashlib, threading, re, logging
+from modules import sd_models as sdModels, scripts
+from modules.shared import opts
 from colorama import init as CInit, Fore, Style
 
 #globals
-ImagesCache: list[str]
-AssetDir: str
+ImagesCache: list[str] = None
+AssetDir: str = os.path.dirname(__file__) + "/assets"
 imageTypes: list[str] = [".jpg", ".jpeg", ".png", ".webp"]
-validModes: list
-checkPointList: list[str]
-cleanList: dict
-logFile: str
+validModes: list = {}
+checkPointList: list[str] = {}
+cleanList: dict = {}
+logFile: str = "/Log.txt"
 printLevel: int = 1
 
 #generic functions
@@ -59,6 +59,9 @@ def listImageFiles() -> list[str]:
 def getNameList() -> list[str]:
 	global AssetDir
 	fileList = glob.glob(AssetDir + "/*.yml")
+	fileList.extend(glob.glob(opts.outdir_txt2img_grids + "/*.yml"))
+	fileList.extend(glob.glob(opts.outdir_grids + "/*.yml"))
+	fileList.extend(glob.glob(opts.outdir_img2img_grids + "/*.yml"))
 	justFileNames = sorted(list(map(lambda f: os.path.relpath(f, AssetDir), fileList)))
 	return justFileNames
 
@@ -73,22 +76,25 @@ class Script(scripts.Script):
 	
 	def show(self, is_img2img) -> bool:
 		if is_img2img: return False
-		else: return True
+		else: return False
 		
+		
+	def refresh(self, gridFile) -> list[str]:
+		newchoices = getNameList()
+		gridFile.options = newchoices
+		return newchoices
 	
 	def ui(self, is_img2img) -> None:
+		return
 		listImageFiles()
 		tryInit()
 		with gr.Row():
 			gridFile = gr.Dropdown(value="", label="Select grid File", choices=getNameList())
-			self.refresh()
-			def refresh() -> list[str]:
-				newchoices = getNameList()
-				gridFile.options = newchoices
-				return newchoices
-		gr.Interface([gridFile], refresh, live=True).launch()
-
+			self.refresh(gridFile)
+			
 		outputFilePath = gr.Textbox(value="", label="Output Folder")
+		gr.Interface(inputs=[gridFile], outputs=[outputFilePath], fn=self.refresh, live=True).launch()
+
 		
 #mode inits
 def tryInit():
@@ -122,7 +128,6 @@ def cleanModel(p, model):
 	return model
 
 #utilities
-
 def getQuickList(list):
 	global quickListCache
     # Calculate a hash for the input list.
@@ -130,10 +135,10 @@ def getQuickList(list):
 
     # Check if the list is already cached, and if so, return it.
 	if listHash in quickListCache:
-		threading.Thread(target=dataLog(f"[getQuickList] using cache", doprint=False, level=2)).start()
+		logging.info(f"[getQuickList] using cache")
 		return quickListCache[listHash]
 	else: 
-		threading.Thread(target=dataLog(f"[getQuickList] not using cache", doprint=False, level=2)).start()
+		logging.info(f"[getQuickList] not using cache")
 
 		# If not cached, calculate the quick list.
 		quickList = {}
@@ -151,7 +156,7 @@ def getQuickList(list):
 
 def getBestInList(name, list):
 	clean = cleanName(name)
-	threading.Thread(target=dataLog(f"[getBestInList] name = {name} clean = {clean}", doprint=False, level=2)).start()
+	logging.info(f"[getBestInList] name = {name} clean = {clean}")
 
     # Get the quick list for the input list.
 	quickList = getQuickList(list)
@@ -173,19 +178,5 @@ def cleanName(name: str) -> str:
 		cleanList[name] = cleanedName
 		return cleanedName
 	
-def dataLog(message: str, doprint: bool, level: int) -> None:
-	try:
-		if not os.path.exists(logFile):
-			open(logFile, 'x')
-		with open(logFile, 'a+', encoding="utf-8") as f:
-			f.write(message)
-			f.write('\n')
-	except: print(f"[datalog] used before defining logFile, value: {message}")
-	
-	if print and printLevel <= level:
-		if level == 0: #warning
-			print(Fore.RED + message + Style.RESET_ALL)
-		elif level == 1: #info
-			print(Fore.GREEN + message + Style.RESET_ALL)
-		elif level == 2: #debug
-			print(Fore.BLUE + message + Style.RESET_ALL)
+def setupLogging():
+	return
