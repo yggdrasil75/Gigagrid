@@ -10,18 +10,20 @@ from PIL import Image
 from git import Repo
 from colorama import init as CInit, Fore, Style
 from functools import lru_cache, wraps
+from collections import OrderedDict
 import pickle
 CInit()
 
 ######################### Core Variables #########################
 
-AssetDir = os.path.dirname(__file__) + "/assets"
+AssetDir = os.path.join(os.path.dirname(__file__), "assets")
 ExtraFooter = "..."
 ExtraAssets = []
 validModes = {}
 ImagesCache = None
 modelchange = {}
 logFile: str
+assetFile:str = None
 cacheFile: str = None
 Version:str = '23.9.5'
 printLevel: int= 1
@@ -52,75 +54,81 @@ webDataGetBaseParamData: callable = None
 
 ######################### Utilities #########################
 
-class quickCache:
-	def __init__(self,maxsize:int=1000,localcache: str | None=None, periodicTime=600):
+def isInstance(value, type:type): return isinstance(value,type)
+
+class QuickCache:
+	def __init__(self, maxSize: int, localCache: str | None, periodicTime=600):
 		global cacheFile
-		self.cache = {}
-		self.inited = False
-		
-		self.cacheFile = localcache or cacheFile
-		#print(f"{self.cacheFile}, {localcache}" )
-		self.cachePath = os.path.dirname(os.path.realpath(self.cacheFile))
+		self.cache: OrderedDict = OrderedDict()  # Use an OrderedDict
+		self.localCache = localCache
+		self.cacheFile: str = self.localCache or cacheFile
+		self.cachePath: str = os.path.dirname(os.path.realpath(self.cacheFile))
 		if not os.path.exists(self.cachePath):
-			os.makedirs(self.cachePath) 
-		self.maxSize = maxsize
-		self.inited = True
+			os.makedirs(self.cachePath)
+		self.maxSize: int = maxSize
 		self.lock = threading.Lock()
-		self.periodicTime = periodicTime
-		self.periodicCacheWrite()
-		
+		self.periodicTime: int = periodicTime
+		self.PeriodicCacheWrite()
+
 		try:
-			self.loadCache()
-		except:
-			pass
-		#self.periodicCacheWrite()
+			self.LoadCache()
+		except (FileNotFoundError, EOFError) as e:
+			print(f"Failed to load cache: {e}")
 
-	def __call__(self, func) ->callable:
-		return self.decorator(func)
+	def __call__(self, func) -> callable:
+		return self.Decorator(func)
 
-	def loadCache(self):
-		if os.path.exists(self.cacheFile):
-			try:
-				with open(self.cacheFile, 'rb') as file:
-					tempcache = pickle.load(file)
-					self.cache.update(tempcache)
-			except Exception as e:
-				print(f"failed to load cache: {e}")
+	def LoadCache(self) -> dict:
+		with self.lock:
+			if os.path.exists(self.cacheFile):
+				try:
+					with open(self.cacheFile, 'rb') as file:
+						tempCache = pickle.load(file)
+						self.cache.update(tempCache)
+				except (FileNotFoundError, EOFError) as e:
+					print(f"Failed to load cache: {e}")
 		return self.cache
 
-	def saveCache(self):
+	def SaveCache(self) -> None:
 		with self.lock:
-			self.loadCache()
 			with open(self.cacheFile, 'wb') as file:
-				pickle.dump(self.cache,file)
+				pickle.dump(self.cache, file)
 
-	
-	def periodicCacheWrite(self):
-		threading.Timer(self.periodicTime, self.periodicCacheWrite).start()
-		self.saveCache()
+	def PeriodicCacheWrite(self):
+		threading.Timer(self.periodicTime, self.PeriodicCacheWrite).start()
+		self.SaveCache()
 
-	def decorator(self, func):
-		@wraps(func)
-		def wrapper(*args, **kwargs):
+	def Decorator(self, func):
+		@wraps(wrapped=func)
+		def Wrapper(*args, **kwargs):
 			keyArgs = []
 			for arg in args:
 				if isinstance(arg, StableDiffusionProcessing):
 					keyArgs.append(hashlib.blake2s(str(arg).encode()).hexdigest())
-				else: 
+				else:
 					keyArgs.append(arg)
 
 			key = (tuple(keyArgs), frozenset(kwargs.items()))
+
+			# Check if the key is in the cache
 			if key in self.cache:
-				return self.cache[key]
+				# Move the accessed item to the end of the ordered dictionary
+				value = self.cache.pop(key)
+				self.cache[key] = value
+				return value
+
 			result = func(*args, **kwargs)
 			with self.lock:
 				if len(self.cache) >= self.maxSize:
-					# Remove the oldest entry to make room for a new one.
-					self.cache.pop(next(iter(self.cache)))
+					# Remove the oldest entry (the first item in the ordered dictionary)
+					self.cache.popitem(last=False)
+
 				self.cache[key] = result
-			#self.saveCache()
+
 			return result
-		return wrapper
+
+		return Wrapper
+
 
 #@quickCache(maxsize=1000)
 def escapeHTML(text: str) -> str:
@@ -235,14 +243,14 @@ def cleanId(id: str) -> str:
 def cleanModeName(name: str) -> str:
     return name.lower().replace('[', '').replace(']', '').replace(' ', '').replace('\\', '/').replace('//', '/').strip()
 	
-@quickCache(1000, "./cache/NameCache.y")
+@QuickCache(1000, "./cache/NameCache.y")
 def cleanName(name: str) -> str:
 	cleanedName = re.sub(r'\[.*?\]', '', name)
 	cleanedName = cleanedName.lower().replace(' ', '').replace('\\', '/').replace('//', '/').strip()
 	cleanList[name] = cleanedName
 	return cleanedName
 
-@quickCache(maxsize=1000,localcache="./cache/quickList.y")
+@QuickCache(maxSize=1000,localCache="./cache/quickList.y")
 def getQuickList(list:frozenset):
 	global quickListCache
     # Calculate a hash for the input list.
@@ -281,7 +289,7 @@ def getBestInList(name, list):
 	else:
 		return None
 
-@quickCache(maxsize=1000, localcache="./cache/betterName")
+@QuickCache(maxSize=1000, localCache="./cache/betterName")
 def chooseBetterFileName(rawName: str, fullName: str) -> str:
 	starttime = datetime.datetime.now()
 	partialName = os.path.splitext(os.path.basename(fullName))[0]
@@ -291,13 +299,13 @@ def chooseBetterFileName(rawName: str, fullName: str) -> str:
 	threading.Thread(target=dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
 	return partialName
 
-@quickCache(maxsize=1000, localcache="./cache/fixNum")
+@QuickCache(maxSize=1000, localCache="./cache/fixNum")
 def fixNum(num) -> float | None:
 	if num is None or math.isinf(num) or math.isnan(num):
 		return None
 	return num
 
-@quickCache(maxsize=1000, localcache="./cache/Numeric")
+@QuickCache(maxSize=1000, localCache="./cache/Numeric")
 def expandNumericListRanges(inList, numType) -> list:
 	outList = list()
 	for i in range(0, len(inList)):
@@ -595,7 +603,7 @@ class SingleGridCall:
 				if gridCallParamAddHook is None or not gridCallParamAddHook(self, grid, p, v):
 					self.params[p] = v
 	
-	@quickCache(maxsize=100000, localcache="./cache/apply", periodicTime=10)
+	@QuickCache(maxSize=100000, localCache="./cache/apply", periodicTime=10)
 	def applyTo(self, p: StableDiffusionProcessing, dry: bool):
 		for name, val in self.params.items():
 			mode = validModes[cleanModeName(name)]
@@ -639,7 +647,7 @@ class GridRunner:
 		axisTuple = tuple(axisList)
 		
 		# Define a helper function to perform the actual computation
-		@quickCache(maxsize=1000)
+		@QuickCache(maxSize=1000, localCache="./cache/ValueSets")
 		def _buildValueSetList(axisTuple):
 			result = list()
 			if len(axisTuple) == 0:
@@ -1151,10 +1159,11 @@ class WebDataBuilder():
 ######################### Main Runner Function #########################
 
 def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
-	global grid, logFile, cacheFile
+	global grid, logFile, cacheFile, assetFile
 	startTime = datetime.datetime.now()
 	grid = GridFileHelper()
 	yamlContent = None
+	assetFile = inputFile
 	if manualPairs is None:
 		fullInputPath = os.path.realpath(os.path.join(AssetDir, inputFile))
 		if not os.path.exists(fullInputPath):
