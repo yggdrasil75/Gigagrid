@@ -1,30 +1,37 @@
 # This file is part of Infinity Grid Generator, view the README.md at https://github.com/mcmonkeyprojects/sd-infinity-grid-generator-script for more information.
 
-import os, glob, yaml, json, shutil, math, re, threading, hashlib, types, datetime, re
+import os, glob, yaml, json, shutil, math, re, threading, hashlib, types, datetime, re, atexit, signal
 from multiprocessing import Pool, cpu_count as cpuCount
 from modules import sd_models as sdModels, images, processing
 from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img, Processed
 from modules.shared import opts
-from copy import copy
+from copy import copy, deepcopy
 from PIL import Image
 from git import Repo
 from colorama import init as CInit, Fore, Style
+from functools import lru_cache, wraps
+from collections import OrderedDict
+import pickle
 CInit()
 
 ######################### Core Variables #########################
 
-AssetDir = os.path.dirname(__file__) + "/assets"
+AssetDir = os.path.join(os.path.dirname(__file__), "assets")
 ExtraFooter = "..."
 ExtraAssets = []
 validModes = {}
 ImagesCache = None
 modelchange = {}
 logFile: str
+assetFile:str = None
+cacheFile: str = None
 Version:str = '23.9.5'
 printLevel: int= 1
 grid = None
-quickListCache = {}
+quickListCache:dict = {}
 paramcache = []
+lock = threading.Lock()
+cleanList: dict = {}
 
 ######################### Hooks #########################
 
@@ -46,6 +53,84 @@ gridRunnerRunPostDryHook: callable = None
 webDataGetBaseParamData: callable = None
 
 ######################### Utilities #########################
+
+def isInstance(value, type:type) -> bool: return isinstance(value,type)
+
+class QuickCache:
+	def __init__(self, maxSize: int, localCache: str | None, periodicTime=600):
+		global cacheFile
+		self.cache: OrderedDict = OrderedDict()  # Use an OrderedDict
+		self.localCache = localCache
+		self.cacheFile: str = self.localCache or cacheFile
+		self.cachePath: str = os.path.dirname(os.path.realpath(self.cacheFile))
+		if not os.path.exists(self.cachePath):
+			os.makedirs(self.cachePath)
+		self.maxSize: int = maxSize
+		self.lock = threading.Lock()
+		self.periodicTime: int = periodicTime
+		self.PeriodicCacheWrite()
+
+		try:
+			self.LoadCache()
+		except (FileNotFoundError, EOFError) as e:
+			print(f"Failed to load cache: {e}")
+
+	def __call__(self, func) -> callable:
+		return self.Decorator(func)
+
+	def LoadCache(self) -> dict:
+		with self.lock:
+			if os.path.exists(self.cacheFile):
+				try:
+					with open(self.cacheFile, 'rb') as file:
+						tempCache = pickle.load(file)
+						self.cache.update(tempCache)
+				except (FileNotFoundError, EOFError) as e:
+					print(f"Failed to load cache: {e}")
+		return self.cache
+
+	def SaveCache(self) -> None:
+		with self.lock:
+			with open(self.cacheFile, 'wb') as file:
+				pickle.dump(self.cache, file)
+
+	def PeriodicCacheWrite(self):
+		threading.Timer(self.periodicTime, self.PeriodicCacheWrite).start()
+		self.SaveCache()
+
+	def Decorator(self, func):
+		@wraps(wrapped=func)
+		def Wrapper(*args, **kwargs):
+			keyArgs = []
+			for arg in args:
+				if isInstance(arg, StableDiffusionProcessing) or isInstance(arg, dict) or isInstance(arg, list):
+					keyArgs.append(hashlib.blake2s(str(arg).encode()).hexdigest())
+				else:
+					keyArgs.append(arg)
+
+			key = (tuple(keyArgs), frozenset(kwargs.items()))
+
+			# Check if the key is in the cache
+			if key in self.cache:
+				# Move the accessed item to the end of the ordered dictionary
+				value = self.cache.pop(key)
+				self.cache[key] = value
+				return value
+
+			result = func(*args, **kwargs)
+			with self.lock:
+				if len(self.cache) >= self.maxSize:
+					# Remove the oldest entry (the first item in the ordered dictionary)
+					self.cache.popitem(last=False)
+
+				self.cache[key] = result
+
+			return result
+
+		return Wrapper
+
+
+#@quickCache(maxsize=1000)
 def escapeHTML(text: str) -> str:
 	return str(text).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
@@ -58,13 +143,34 @@ def dataLog(message: str, doprint: bool, level: int) -> None:
 			f.write('\n')
 	except: print(f"[datalog] used before defining logFile, value: {message}")
 	
-	if print and printLevel <= level:
+	if print: # and printLevel >= level:
 		if level == 0: #warning
 			print(Fore.RED + message + Style.RESET_ALL)
 		elif level == 1: #info
 			print(Fore.GREEN + message + Style.RESET_ALL)
 		elif level == 2: #debug
 			print(Fore.BLUE + message + Style.RESET_ALL)
+	
+def datalogNew(folder) -> str:
+	logFile = os.path.join(folder, 'log.txt')
+
+	# Create a list of existing log files in the folder
+	logFiles = [logFile] + [os.path.join(folder, f'log{i}.txt') for i in range(1, 5)]
+
+	# Rename existing log files in reverse order
+	for i in range(5, 1, -1):
+		src = os.path.join(folder, f'log{i - 1}.txt')
+		dest = os.path.join(folder, f'log{i}.txt')
+		if dest.endswith("log5.txt") and os.path.exists(dest):
+			os.remove(dest)
+		if os.path.exists(src):
+			os.rename(src, dest)
+
+	# Rename the current log file to 'log1.txt'
+	if os.path.exists(logFile):
+		os.rename(logFile, os.path.join(folder, 'log1.txt'))
+
+	return logFile
 
 def quickTimeMath(startTime:datetime.datetime, endTime:datetime.datetime = None) -> str:
 	if endTime == None: endTime = datetime.datetime.now()
@@ -72,10 +178,10 @@ def quickTimeMath(startTime:datetime.datetime, endTime:datetime.datetime = None)
 
 def lateapplyModel(p, v) -> None:
 	starttime = datetime.datetime.now()
-	threading.Thread(target=dataLog(f"[lateApplyModel] Changing models to {v} please wait", True, 1)).start()
+	dataLog(f"[lateApplyModel] Changing models to {v} please wait", True, 1)
 	opts.sd_model_checkpoint = getModelFor(v)
 	sdModels.reload_model_weights()
-	threading.Thread(target=dataLog(f"[lateApplyModel] Changing models to done in {quickTimeMath(starttime, datetime.datetime.now())}", True, 1)).start()	
+	dataLog(f"[lateApplyModel] Changing models to done in {quickTimeMath(starttime, datetime.datetime.now())}", True, 1)
 
 def getVersion() -> str:
 	global Version
@@ -88,7 +194,7 @@ def getVersion() -> str:
 		Version = "Unknown"
 	return Version
 
-def listImageFiles():
+def listImageFiles() -> list:
 	global ImagesCache
 	starttime = datetime.datetime.now()
 	if ImagesCache is not None:
@@ -103,15 +209,19 @@ def listImageFiles():
 				while fn.startswith('/'):
 					fn = fn[1:]
 				ImagesCache.append(fn)
-	threading.Thread(target=dataLog(f"[listImageFiles] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
+	dataLog(f"[listImageFiles] done in {quickTimeMath(startTime=starttime)}", False, 2)
 	return ImagesCache
+
 
 def getNameList() -> list[str]:
 	fileList = glob.glob(AssetDir + "/*.yml")
+	fileList.extend(glob.glob(opts.outdir_txt2img_grids + "/*.yml"))
+	fileList.extend(glob.glob(opts.outdir_grids + "/*.yml"))
+	fileList.extend(glob.glob(opts.outdir_img2img_grids + "/*.yml"))
 	justFileNames = sorted(list(map(lambda f: os.path.relpath(f, AssetDir), fileList)))
-	
 	return justFileNames
 
+@QuickCache(1000,"./cache/common")
 def fixDict(d: dict):
 	if d is None:
 		return None
@@ -119,6 +229,7 @@ def fixDict(d: dict):
 		raise RuntimeError(f"Value '{d}' is supposed to be submapping but isn't (it's plaintext, a list, or some other incorrect format). Did you typo the formatting?")
 	return {str(k).lower(): v for k, v in d.items()}
 
+@QuickCache(1000,"./cache/common")
 def cleanForWeb(text: str):
 	if text is None:
 		return None
@@ -126,30 +237,33 @@ def cleanForWeb(text: str):
 		raise RuntimeError(f"Value '{text}' is supposed to be text but isn't (it's a datamapping, list, or some other incorrect format). Did you typo the formatting?")
 	return text.replace('"', '&quot;')
 
+@QuickCache(1000,"./cache/common")
 def cleanId(id: str) -> str:
 	return re.sub("[^a-z0-9]", "_", id.lower().strip())
 
+@QuickCache(1000, "./cache/common")
 def cleanModeName(name: str) -> str:
     return name.lower().replace('[', '').replace(']', '').replace(' ', '').replace('\\', '/').replace('//', '/').strip()
 	
+@QuickCache(1000, "./cache/common")
 def cleanName(name: str) -> str:
-    # Use regular expressions to remove everything between square brackets
-    cleanedName = re.sub(r'\[.*?\]', '', name)
-    # Convert to lowercase, replace spaces with '', and normalize slashes
-    cleanedName = cleanedName.lower().replace(' ', '').replace('\\', '/').replace('//', '/').strip()
-    return cleanedName
+	cleanedName = re.sub(r'\[.*?\]', '', name)
+	cleanedName = cleanedName.lower().replace(' ', '').replace('\\', '/').replace('//', '/').strip()
+	cleanList[name] = cleanedName
+	return cleanedName
 
-def getQuickList(list):
+@QuickCache(maxSize=1000,localCache="./cache/quickList")
+def getQuickList(list:frozenset):
 	global quickListCache
     # Calculate a hash for the input list.
-	listHash = hashlib.sha1(str(list).encode()).hexdigest()
+	listHash = hashlib.blake2s(str(list).encode()).hexdigest()
 
     # Check if the list is already cached, and if so, return it.
 	if listHash in quickListCache:
-		threading.Thread(target=dataLog(f"[getQuickList] using cache", doprint=False, level=2)).start()
+		dataLog(f"[getQuickList] using cache", doprint=False, level=2)
 		return quickListCache[listHash]
 	else: 
-		threading.Thread(target=dataLog(f"[getQuickList] not using cache", doprint=False, level=2)).start()
+		dataLog(f"[getQuickList] not using cache", doprint=False, level=2)
 
 		# If not cached, calculate the quick list.
 		quickList = {}
@@ -165,33 +279,35 @@ def getQuickList(list):
 
 		return quickList
 
+@QuickCache(maxSize=1000,localCache="./cache/quickList")
 def getBestInList(name, list):
 	clean = cleanName(name)
-	threading.Thread(target=dataLog(f"[getBestInList] name = {name} clean = {clean}", doprint=False, level=2)).start()
-
+	#dataLog(f"[getBestInList] name = {name} clean = {clean}", doprint=False, level=2)
     # Get the quick list for the input list.
-	quickList = getQuickList(list)
-
+	quickList = getQuickList(frozenset(list))
 	if clean in quickList:
 		return quickList[clean][0]
 	else:
 		return None
 
-def chooseBetterFileName(rawName: str, fullName: str):
+@QuickCache(maxSize=1000, localCache="./cache/betterName")
+def chooseBetterFileName(rawName: str, fullName: str) -> str:
 	starttime = datetime.datetime.now()
 	partialName = os.path.splitext(os.path.basename(fullName))[0]
 	if '/' in rawName or '\\' in rawName or '.' in rawName or len(rawName) >= len(partialName):
-		threading.Thread(target=dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
+		dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)
 		return rawName
-	threading.Thread(target=dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
+	dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)
 	return partialName
 
-def fixNum(num):
+@QuickCache(maxSize=1000, localCache="./cache/fixNum")
+def fixNum(num) -> float | None:
 	if num is None or math.isinf(num) or math.isnan(num):
 		return None
 	return num
 
-def expandNumericListRanges(inList, numType):
+@QuickCache(maxSize=1000, localCache="./cache/Numeric")
+def expandNumericListRanges(inList, numType) -> list:
 	outList = list()
 	for i in range(0, len(inList)):
 		rawVal = str(inList[i]).strip()
@@ -233,22 +349,24 @@ class GridSettingMode:
 		self.clean = clean
 		self.validList = validList
 
-def registerMode(name: str, mode: GridSettingMode):
+def registerMode(name: str, mode: GridSettingMode) -> None:
 	mode.name = name
 	validModes[cleanModeName(name)] = mode
 
 ######################### Validation #########################
 
-def validateParams(grid, params: dict):
+#@quickCache(maxsize=1000, localcache="./cache/validParams")
+def validateParams(grid, params: dict) -> None:
 	global paramcache
 	phash = hashlib.blake2s(str(params).encode()).hexdigest()
 	if phash in paramcache:
-		threading.Thread(target=dataLog("valid", False, 2)).start()
+		dataLog("valid", False, 2)
 	else:
 		for p,v in params.items():
 			params[p] = validateSingleParam(p, grid.procVariables(v))
 		paramcache.append(phash)
 
+#@quickCache(maxsize=1000, localcache="./cache/validateParams")
 def validateSingleParam(p: str, value):
 	p = cleanModeName(p)
 	mode = validModes.get(p)
@@ -347,9 +465,9 @@ class AxisValue:
 			if not self.skip:
 				threading.Thread(validateParams(grid, self.params)).start()
 	
-	def __str__(self):
+	def __str__(self) -> str:
 		return f"(title={self.title}, description={self.description}, params={self.params})"
-	def __unicode__(self):
+	def __unicode__(self) -> str:
 		return self.__str__()
 
 class Axis:
@@ -425,7 +543,7 @@ class GridFileHelper:
 		self.author = self.gridObj.get("author")
 		self.format = self.gridObj.get("format")
 		self.OutPath = self.gridObj.get("outpath")
-		threading.Thread(target=dataLog(f"saving to {self.OutPath}", True, 1)).start()
+		dataLog(f"saving to {self.OutPath}", True, 1)
 		if self.title is None or self.description is None or self.author is None or self.format is None:
 			raise RuntimeError(f"Invalid file {gridFile}: missing grid title, author, format, or description in grid obj {self.gridObj}")
 		self.params = fixDict(self.gridObj.get("params"))
@@ -449,7 +567,7 @@ class SingleGridCall:
 	def __init__(self, values: list) -> None:
 		self.values = values
 		self.skip = False
-		skip_dict = {'title': [], 'params': []}
+		skipDict = {'title': [], 'params': []}
 		titles = []
 		params = []
 		for val in values:
@@ -457,43 +575,46 @@ class SingleGridCall:
 				self.skip = True
 			if hasattr(val, 'skipList') and isinstance(val.skipList, dict):
 				if 'title' in val.skipList.keys():
-					skip_dict['title'] = skip_dict['title'] + val.skipList['title']
+					skipDict['title'] = skipDict['title'] + val.skipList['title']
 				if 'params' in val.skipList.keys():
-					skip_dict['params'] = skip_dict['params'] + val.skipList['params']
-				#if val.skipList.get("title").contains 
+					skipDict['params'] = skipDict['params'] + val.skipList['params']
+				
 			if hasattr(val, 'title'):
 				titles.append(val.title)
 			if hasattr(val, 'params'):
 				params.append(val.params)
-		skip_title = skip_dict['title']
-		skip_params = skip_dict['params']
-		if skip_title is not None:
-			for item in skip_title:
+		skipTitle = skipDict['title']
+		skipParams = skipDict['params']
+		if skipTitle is not None:
+			for item in skipTitle:
 				if item in map(str.lower, titles):
 					self.skip = True
-		if skip_params is not None:
-			for item in skip_params:
+		if skipParams is not None:
+			for item in skipParams:
 				if any(item in string for string in str(params).lower()):
 					self.skip = True
 		if gridCallInitHook is not None:
 			gridCallInitHook(self)
 
-	def flattenParams(self):
+	def flattenParams(self) -> None:
 		global grid
 		self.params = grid.params.copy() if grid.params is not None else dict()
 		for val in self.values:
 			for p, v in val.params.items():
 				if gridCallParamAddHook is None or not gridCallParamAddHook(self, grid, p, v):
 					self.params[p] = v
-
+	
+	@QuickCache(maxSize=100000, localCache="./cache/apply", periodicTime=10)
 	def applyTo(self, p: StableDiffusionProcessing, dry: bool):
 		for name, val in self.params.items():
 			mode = validModes[cleanModeName(name)]
 			#if not dry or mode.dry:
-			if cleanModeName(name) == "model":
+			if mode == "model" or mode == "Model" or name == "model":
 				modelchange[id(p)] = val
 			else:
+				#startTime = datetime.datetime.now()
 				mode.apply(p, val)
+				#dataLog(f"[applyTo] Applying {name} took {(datetime.datetime.now() - startTime).total_seconds():.9f}", False, 0)
 		if gridCallApplyHook is not None:
 			gridCallApplyHook(self, p, dry)
 
@@ -508,49 +629,58 @@ class GridRunner:
 		self.doOverwrite = doOverwrite
 		self.basePath = basePath
 		self.promptskey = promptskey
-		self.applied_sets = {}
+		self.appliedSets = {}
 		grid.minWidth = None
 		grid.minHeight = None
 		grid.initialPromptskey = promptskey
 		self.lastUpdate = []
 		
-	def updateLiveFile(self, new_file: str):
-		t_now = datetime.datetime.now()
-		self.lastUpdate = [x for x in self.lastUpdate if t_now - x['t'] < 20]
-		self.lastUpdate.append({'f': new_file, 't': t_now})
+	def updateLiveFile(self, newFile: str):
+		tNow = datetime.datetime.now()
+		self.lastUpdate = [x for x in self.lastUpdate if tNow - x['t'] < 20]
+		self.lastUpdate.append({'f': newFile, 't': tNow})
 		with open(os.path.join(self.basepath, 'last.js'), 'w', encoding="utf-8") as f:
-			update_str = '", "'.join([x['f'] for x in self.lastUpdate])
-			f.write(f'window.lastUpdated = ["{update_str}"]')
+			updateStr = '", "'.join([x['f'] for x in self.lastUpdate])
+			f.write(f'window.lastUpdated = ["{updateStr}"]')
 
 	def buildValueSetList(self, axisList: list) -> list:
-		result = list()
-		if len(axisList) == 0:
+		# Convert the mutable list to a tuple
+		axisTuple = tuple(axisList)
+		
+		# Define a helper function to perform the actual computation
+		@QuickCache(maxSize=1000, localCache="./cache/ValueSets")
+		def _buildValueSetList(axisTuple):
+			result = list()
+			if len(axisTuple) == 0:
+				return result
+			curAxis = axisTuple[0]
+			if len(axisTuple) == 1:
+				for val in curAxis.values:
+					if not val.skip:
+						newList = list()
+						newList.append(val)
+						temp = SingleGridCall(newList)
+						if not temp.skip:
+							result.append(temp)
+				return result
+			nextAxisList = axisTuple[1::]
+			for obj in _buildValueSetList(nextAxisList):
+				for val in curAxis.values:
+					if not val.skip:
+						newList = obj.values.copy()
+						newList.append(val)
+						temp = SingleGridCall(newList)
+						if not temp.skip:
+							result.append(temp)
 			return result
-		curAxis = axisList[0]
-		if len(axisList) == 1:
-			for val in curAxis.values:
-				if not val.skip:
-					newList = list()
-					newList.append(val)
-					temp = SingleGridCall(newList)
-					if not temp.skip:
-						result.append(temp)
-			return result
-		nextAxisList = axisList[1::]
-		for obj in self.buildValueSetList(nextAxisList):
-			for val in curAxis.values:
-				if not val.skip:
-					newList = obj.values.copy()
-					newList.append(val)
-					temp = SingleGridCall(newList)
-					if not temp.skip:
-						result.append(temp)
-		return result
+
+		# Call the helper function with the tuple argument
+		return _buildValueSetList(axisTuple)
 
 	def preprocess(self):
 		self.valueSetsTemp = self.buildValueSetList(list(reversed(self.grid.axes)))
 		self.valueSets = []
-		threading.Thread(target=dataLog(f'Have {len(self.valueSetsTemp)} unique value sets, will go into {self.basePath}', True, 1)).start()
+		dataLog(f'Have {len(self.valueSetsTemp)} unique value sets, will go into {self.basePath}', True, 1)
 		for set in self.valueSetsTemp:
 			set.filepath = self.basePath + '/' + '/'.join(list(map(lambda v: cleanName(v.key), set.values)))
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
@@ -564,10 +694,10 @@ class GridRunner:
 				self.valueSets.append(set)
 				stepCount = self.promptskey.steps
 				self.totalSteps += stepCount
-				enable_hr = set.params.get("enable highres fix")
-				if enable_hr is None:
-					enable_hr = self.promptskey.enable_hr
-				if enable_hr:
+				enableHR = set.params.get("enable highres fix")
+				if enableHR is None:
+					enableHR = self.promptskey.enable_hr
+				if enableHR:
 					highresSteps = set.params.get("highres steps")
 					highresSteps = int(highresSteps) if highresSteps is not None else (self.promptskey.hr_second_pass_steps or stepCount)
 					self.totalSteps += highresSteps
@@ -577,28 +707,29 @@ class GridRunner:
 		if gridRunnerPreRunHook is not None:
 			gridRunnerPreRunHook(self)
 		iteration = 0
-		prompt_batch_list = []
+		promptBatchList = []
 		if not dry:
+			threads = []
 			for set in self.valueSets:
 				if set.skip:
 					continue
 				iteration += 1
 				#if not dry:
-				threading.Thread(target=dataLog(f'On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}', True, 1)).start()
+				dataLog(f'[mainRun] On {iteration}/{self.totalRun} ... Set: {set.data}, file {set.filepath}', True, 1)
 				p2 = copy(self.promptskey)
 				set.applyTo(p2, dry)
-				prompt_batch_list.append(p2)
-				#self.applied_sets.add()
-				self.applied_sets[id(p2)] = self.applied_sets.get(id(p2), []) + [set]
-			threading.Thread(target=dataLog(f'setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now', True, 1)).start()
-			threading.Thread(target=dataLog(f'\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth', False, 0)).start()
-			prompt_batch_list = self.batch_prompts(prompt_batch_list, self.promptskey)
-			for i, p2 in enumerate(prompt_batch_list):
-				appliedsets = self.applied_sets[id(p2)]
-				#print(f'On {i+1}/{len(prompt_batch_list)} ... Prompts: {p2.prompt[0]}')
+				promptBatchList.append(p2)
+				#self.appliedSets.add()
+				self.appliedSets[id(p2)] = self.appliedSets.get(id(p2), []) + [set]
+			dataLog(f'[mainRun] setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now', True, 1)
+			dataLog(f'[mainRun]\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth', False, 0)
+			promptBatchList = self.batchPrompts(promptBatchList, self.promptskey)
+			for i, p2 in enumerate(promptBatchList):
+				appliedsets = self.appliedSets[id(p2)]
+				#print(f'On {i+1}/{len(promptbatchlist)} ... Prompts: {p2.prompt[0]}')
 				#p2 = StableDiffusionProcessing(p2)
 				start2 = datetime.datetime.now()
-				threading.Thread(target=dataLog(f"start time: {start2}", True, 2)).start()
+				dataLog(f"[mainRun] start time: {start2}", True, 2)
 				if id(p2) in modelchange.keys():
 					lateapplyModel(p2,modelchange[id(p2)])
 				if gridRunnerPreDryHook is not None:
@@ -607,13 +738,13 @@ class GridRunner:
 					last = gridRunnerRunPostDryHook(self, p2, appliedsets)
 					#self.updateLiveFile(set.filepath + "." + self.grid.format)
 				except Exception as e: 
-					threading.Thread(target=dataLog("image failed to generate. please restart later", True, 0)).start()
-					threading.Thread(target=dataLog(f"exception: {e}", False, 0)).start()
+					dataLog("[mainRun] image failed to generate. please restart later", True, 0)
+					dataLog(f"[mainRun] exception: {e}", False, 0)
 					continue
 				try:
 					if p2.hasPostProcessing:
 						try:
-							PostHandler(self, p2, self.applied_sets[id(p2)])
+							PostHandler(self, p2, self.appliedSets[id(p2)])
 							print("Post Processing")
 						except Exception as e:
 							print("Image postprocessing has failed.")
@@ -621,12 +752,16 @@ class GridRunner:
 				except:
 					print("no post processing")
 					
-				for iterator, img in enumerate(last.images):
-					set = list(appliedsets)[iterator]
-					threading.Thread(target=dataLog(f"saving to {set.filepath}", True, 1)).start()
-					images.save_image(img, path=os.path.dirname(set.filepath), basename="",
-						forced_filename=os.path.basename(set.filepath), save_to_dirs=False,
-						extension=grid.format, p=p2, prompt=p2.prompt[iterator],seed=last.seed)
+
+				def saveOffThread():
+					aset = deepcopy(appliedsets)
+					for iterator, img in enumerate(last.images):
+						set = list(aset)[iterator]
+						dataLog(f"saving to {set.filepath}", True, 1)
+						images.save_image(img, path=os.path.dirname(set.filepath), basename="",
+							forced_filename=os.path.basename(set.filepath), save_to_dirs=False,
+							extension=grid.format, p=p2, prompt=p2.prompt[iterator],seed=last.seed)
+				threading.Thread(target=saveOffThread).start()
 				#def saveOffThread():
 				#	try:
 				#		for iterator, img in enumerate(last.images):
@@ -643,25 +778,24 @@ class GridRunner:
 				end2 = datetime.datetime.now()
 				steptotal = (end2 - start2).total_seconds()
 				print(f'the last batch took {steptotal:.2f} for {p2.batch_size} images. an average generation speed of {steptotal / p2.batch_size} per image, and {steptotal / p2.batch_size / p2.steps} seconds per image step')
-				threading.Thread(target=dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)).start()
+				dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)
 		endtime = datetime.datetime.now()
-		threading.Thread(target=dataLog(f'Done, Time Taken: {(endtime - starttime).total_seconds():.2f}', True, 2)).start()
+		dataLog(f'Done, Time Taken: {(endtime - starttime).total_seconds():.2f}', True, 2)
 		return last
 	
-	
-	def batch_prompts(self, prompt_list: list, Promptkey: StableDiffusionProcessing) -> list:
+	def batchPromptsGrouping(self, promptList: list, promptKey: StableDiffusionProcessing) -> list:
 		# Group prompts by batch size
 		prompt_groups = {}
 		prompt_group = []
-		batchsize = Promptkey.batch_size
+		batchsize = promptKey.batch_size
 		starto = 0
 		prompt_groups = {}
 		prompt_group = []
 		starto = 0
-		for i in range(len(prompt_list)):
-			prompt = prompt_list[i]
+		for i in range(len(promptList)):
+			prompt = promptList[i]
 			if i > 0:
-				prompt2 = prompt_list[i - 1]
+				prompt2 = promptList[i - 1]
 			else:
 				prompt2 = prompt
 			if id(prompt) in modelchange and prompt != prompt2 and id(prompt2) in modelchange and modelchange[id(prompt)] != modelchange[id(prompt2)]:
@@ -681,25 +815,27 @@ class GridRunner:
 				prompt_group.append(prompt)
 		if prompt_group:
 			prompt_groups[starto] = prompt_group
-
 		print("added all to groups")
+		return prompt_groups
+	
+	def batchPromptsValidating(self, promptGroups: list, promptKey: StableDiffusionProcessing):
 		merged_prompts = []
-		print(f"there are {len(prompt_groups)} groups after grouping. merging now")
-		for iterator, promgroup in enumerate(prompt_groups):
-			promgroup = prompt_groups[iterator]
+		print(f"there are {len(promptGroups)} groups after grouping. merging now")
+		for iterator, promgroup in enumerate(promptGroups):
+			promgroup = promptGroups[iterator]
 			if isinstance(promgroup, StableDiffusionProcessing) or isinstance(promgroup, int):
 				fail = True
 			else:
 				fail = False
 				prompt_attr = promgroup[0]
 				batchsize = prompt_attr.batch_size
-				print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(prompt_groups.items())*batchsize}")
+				print(f"merging prompts {iterator*batchsize} - {iterator*batchsize+batchsize} of {len(promptGroups.items())*batchsize}")
 
 				for it, tempprompt in enumerate(promgroup):
 					
 					if not all(hasattr(tempprompt2, attr) for tempprompt2 in promgroup for attr in dir(tempprompt)):
 						fail = True
-						threading.Thread(target=dataLog(f"prompt does not contain {str(attr)} can not merge", False, 0)).start()
+						dataLog(f"prompt does not contain {str(attr)} can not merge", False, 0)
 						break
 					for attr in dir(tempprompt):
 						if attr.startswith("__"): continue
@@ -711,12 +847,12 @@ class GridRunner:
 							else: 
 								fail = True
 								if it == 1: 
-									threading.Thread(target=dataLog(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempprompt, attr))}", False, 0)).start()
-								threading.Thread(target=dataLog(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}", False, 0)).start()
+									dataLog(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempprompt, attr))}", False, 0)
+								dataLog(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}", False, 0)
 								break
 						except AttributeError:
 							print(tempprompt)
-							threading.Thread(target=dataLog(prompt_attr, False, 0)).start()
+							dataLog(prompt_attr, False, 0)
 							raise
 			if not fail:
 				merged_prompt = prompt_attr
@@ -725,14 +861,15 @@ class GridRunner:
 				merged_prompt.seed = [p.seed for p in promgroup]
 				merged_prompt.subseed = [p.subseed for p in promgroup]
 				merged_prompts.append(merged_prompt)
+				self.totalSteps -= (merged_prompt.batch_size - 1) * merged_prompt.steps
 				# Add applied sets
 				for prompt in promgroup:
-					setup2 = self.applied_sets.get(id(prompt), [])
+					setup2 = self.appliedSets.get(id(prompt), [])
 					#print(setup2)
-					merged_filepaths = [setup.filepath for setup in self.applied_sets[id(merged_prompt)]]
+					merged_filepaths = [setup.filepath for setup in self.appliedSets[id(merged_prompt)]]
 					if any(setall.filepath in merged_filepaths for setall in setup2): continue
-					if self.applied_sets.get(id(prompt), []) in self.applied_sets[id(merged_prompt)]: continue
-					self.applied_sets[id(merged_prompt)] += self.applied_sets.get(id(prompt), [])
+					if self.appliedSets.get(id(prompt), []) in self.appliedSets[id(merged_prompt)]: continue
+					self.appliedSets[id(merged_prompt)] += self.appliedSets.get(id(prompt), [])
 				#print("merged")
 				merged_prompt.batch_size = len(promgroup)
 
@@ -747,6 +884,107 @@ class GridRunner:
 				merged_prompts.extend(promgroup)
 		print(f"there are {len(merged_prompts)} generations after merging")
 		return merged_prompts
+
+	def batchPrompts(self, promptList: list, promptKey: StableDiffusionProcessing) -> list:
+		return self.batchPromptsValidating(self.batchPromptsGrouping(promptList, promptKey),promptKey)
+
+	#def batchPrompts(self, promptList: list, promptKey: StableDiffusionProcessing)-> list:
+	#	promptGroups = []
+	#	promptGroup = []
+	#	for i in range(len(promptList)):
+	#		prompt = promptList[i]
+	#		if i > 0: prompt2 = promptList[i - 1]
+	#		else: prompt2 = prompt
+	#		
+	#		if prompt != prompt2 and modelchange[id(prompt)] != modelchange[id(prompt2)]:
+	#			if len(promptGroup) > 0:
+	#				promptGroups.append(promptGroup)
+	#			promptGroups.append(prompt)
+	#			promptGroup = []
+	#		elif i % prompt.batch_size == 0:
+	#			if promptGroup:
+	#				promptGroups.append(promptGroup)
+	#			promptGroup.append(prompt)
+	#		else:
+	#			promptGroup.append(prompt)
+	#	if promptGroup:
+	#		promptGroups.append(promptGroup)
+#
+	#	dataLog(f"All Groups made. \n There are {len(promptGroups)} groups after grouping. making batches now", True, 1)
+#
+	#	mergedPrompts = []
+	#	
+#	#	for it, prom in enumerate(promptGroups):
+#	#		print("prompt group")
+#	#		prom2 = self.batchPromptsValid(prom)
+#	#		if isinstance(prom2, list):
+#	#			mergedPrompts.extend(prom2)
+#	#		elif prom2 is not None:
+#	#			mergedPrompts.append(prom2)
+#
+	#	def bgroup(group):
+	#		result = self.batchPromptsValid(group)
+	#		if result is not None:
+	#			with lock:
+	#				mergedPrompts.append(result)
+#
+	#	for iterator, promptGroup in enumerate(promptGroups):
+	#		threads = []
+	#		thread = threading.Thread(target=bgroup, args=(promptGroup,))
+	#		threads.append(thread)
+	#		thread.start()
+#
+	#	for thread in threads:
+	#		thread.join()
+	#	return mergedPrompts
+#
+	#def batchPromptsValid(self, promptList):
+	#	if isinstance(promptList, StableDiffusionProcessing) or isinstance(promptList, StableDiffusionProcessingTxt2Img) or isinstance(promptList, StableDiffusionProcessingImg2Img):
+	#		promptList.batch_size = 1
+	#		dataLog(f"single", True, 0)
+	#		return promptList
+	#	elif isinstance(promptList, int):
+	#		dataLog(f"int", True, 0)
+	#		return
+	#	else:
+	#		dataLog(f"group", True, 0)
+	#		baseProm = promptList[0]
+	#		for iterator, tempPrompt in enumerate(promptList):
+	#			if not all(hasattr(tempPrompt2, attr) for tempPrompt2 in promptList for attr in dir(tempPrompt)):
+	#				dataLog(f"prompt does not contain {str(attr)} can not merge", False, 0)
+	#				return promptList
+	#			for attr in dir(tempPrompt):
+	#				if attr.startswith("__"): continue
+	#				if callable(getattr(tempPrompt, attr)):continue
+	#				if isinstance(getattr(tempPrompt, attr, None), types.BuiltinFunctionType) or isinstance(getattr(tempPrompt, attr, None), types.BuiltinMethodType): continue
+	#				if attr in ['prompt', 'all_prompts', 'all_negative_prompts', 'negative_prompt', 'seed', 'subseed']: continue
+	#				try:
+	#					if getattr(tempPrompt, attr) == getattr(baseProm, attr): continue
+	#					else: 
+	#						if iterator == 1: 
+	#							dataLog(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempPrompt, attr))}", False, 0)
+	#						dataLog(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(baseProm, attr))}", False, 0)
+	#						return promptList
+	#				except AttributeError:
+	#					print(tempPrompt)
+	#					dataLog(baseProm, False, 0)
+	#					dataLog(f"failed to merged a group", True, 1)
+	#					return promptList
+	#		mergedPrompt = baseProm
+	#		mergedPrompt.prompt = [p.prompt for p in promptList]
+	#		mergedPrompt.negative_prompt = [p.negative_prompt for p in promptList]
+	#		mergedPrompt.seed = [p.seed for p in promptList]
+	#		mergedPrompt.subseed = [p.subseed for p in promptList]
+	#		for prompt in promptList:
+	#			setup2 = self.appliedSets.get(id(prompt), [])
+	#			mergedFilePaths = [setup.filepath for setup in self.appliedSets[id(mergedPrompt)]]
+	#			if any(setall.filepath in mergedFilePaths for setall in setup2): continue
+	#			if self.appliedSets.get(id(prompt), []) in self.appliedSets[id(mergedPrompt)]: continue
+	#			self.appliedSets[id(mergedPrompt)] += self.appliedSets.get(id(prompt), [])
+	#		mergedPrompt.batch_size = len(promptList)
+	#		dataLog(f"merged a group", True, 1)
+	#		return mergedPrompt
+
 
 
 
@@ -922,11 +1160,13 @@ class WebDataBuilder():
 ######################### Main Runner Function #########################
 
 def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, outputFolderBase: str, outputFolderName: str = None, doOverwrite: bool = False, generatePage: bool = True, publishGenMetadata: bool = True, dryRun: bool = False, manualPairs: list = None):
-	global grid, logFile
+	global grid, logFile, cacheFile, assetFile
+	startTime = datetime.datetime.now()
 	grid = GridFileHelper()
 	yamlContent = None
+	assetFile = inputFile
 	if manualPairs is None:
-		fullInputPath = AssetDir + "/" + inputFile
+		fullInputPath = os.path.realpath(os.path.join(AssetDir, inputFile))
 		if not os.path.exists(fullInputPath):
 			raise RuntimeError(f"Non-existent file '{inputFile}'")
 		# Parse and verify
@@ -935,7 +1175,7 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 				yamlContent = yaml.safe_load(yamlContentText)
 			except yaml.YAMLError as exc:
 				raise RuntimeError(f"Invalid YAML in file '{inputFile}': {exc}")
-		grid.parseYaml(yamlContent, inputFile)
+			grid.parseYaml(yamlContent, inputFile)
 	else:
 		grid.title = outputFolderName
 		grid.description = ""
@@ -951,6 +1191,7 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 					grid.axes.append(Axis(grid, key, manualPairs[i * 2 + 1]))
 				except Exception as e:
 					raise RuntimeError(f"Invalid axis {(i + 1)} '{key}': errored: {e}")
+	pairTime = datetime.datetime.now()
 	# Now start using it
 	if outputFolderName.strip() == "":
 		if grid.OutPath is None:
@@ -964,10 +1205,14 @@ def runGridGen(passThroughObj: StableDiffusionProcessing, inputFile: str, output
 	else:
 		folder = os.path.join(outputFolderBase, outputFolderName)
 	runner = GridRunner(doOverwrite, folder, passThroughObj)
-	logFile = os.path.join(folder,'log.txt')
+	logFile = datalogNew(folder)
+	cacheFile = os.path.join(folder, "cache")
 	runner.preprocess()
+	prerun = datetime.datetime.now()
 	if generatePage:
 		json = WebDataBuilder.EmitWebData(folder, publishGenMetadata, passThroughObj, yamlContent, dryRun)
+	runnerStart = datetime.datetime.now()
+	dataLog(f"Main runner started at {startTime}, pairing done at {pairTime}, preprocess at {prerun}, and processor started at {runnerStart} time for each: {quickTimeMath(startTime=startTime, endTime=pairTime)}, {quickTimeMath(startTime=startTime, endTime=prerun)}, {quickTimeMath(startTime=startTime, endTime=runnerStart)}", True, 1)
 	result = runner.run(dryRun)
 	if dryRun:
 		print("Infinite Grid dry run succeeded without error")
