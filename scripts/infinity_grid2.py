@@ -18,8 +18,8 @@ from modules import images, shared, sd_models, sd_vae, sd_samplers, scripts, pro
 from modules.processing import StableDiffusionProcessing, process_images, Processed
 from modules.shared import opts, state
 from PIL import Image
-import gridgencore as core
-from gridgencore import getBestInList, cleanName, cleanModeName, chooseBetterFileName, GridSettingMode, fixNum, applyField, registerMode
+import gigacore as core
+from gigacore import getBestInList, cleanName, cleanModeName, chooseBetterFileName, GridSettingMode, fixNum, applyField, registerMode
 from colorama import init as CInit, Fore, Style
 from functools import lru_cache
 

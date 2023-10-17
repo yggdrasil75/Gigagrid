@@ -54,7 +54,7 @@ webDataGetBaseParamData: callable = None
 
 ######################### Utilities #########################
 
-def isInstance(value, type:type): return isinstance(value,type)
+def isInstance(value, type:type) -> bool: return isinstance(value,type)
 
 class QuickCache:
 	def __init__(self, maxSize: int, localCache: str | None, periodicTime=600):
@@ -103,7 +103,7 @@ class QuickCache:
 		def Wrapper(*args, **kwargs):
 			keyArgs = []
 			for arg in args:
-				if isinstance(arg, StableDiffusionProcessing):
+				if isInstance(arg, StableDiffusionProcessing) or isInstance(arg, dict) or isInstance(arg, list):
 					keyArgs.append(hashlib.blake2s(str(arg).encode()).hexdigest())
 				else:
 					keyArgs.append(arg)
@@ -151,7 +151,7 @@ def dataLog(message: str, doprint: bool, level: int) -> None:
 		elif level == 2: #debug
 			print(Fore.BLUE + message + Style.RESET_ALL)
 	
-def datalogNew(folder):
+def datalogNew(folder) -> str:
 	logFile = os.path.join(folder, 'log.txt')
 
 	# Create a list of existing log files in the folder
@@ -178,10 +178,10 @@ def quickTimeMath(startTime:datetime.datetime, endTime:datetime.datetime = None)
 
 def lateapplyModel(p, v) -> None:
 	starttime = datetime.datetime.now()
-	threading.Thread(target=dataLog(f"[lateApplyModel] Changing models to {v} please wait", True, 1)).start()
+	dataLog(f"[lateApplyModel] Changing models to {v} please wait", True, 1)
 	opts.sd_model_checkpoint = getModelFor(v)
 	sdModels.reload_model_weights()
-	threading.Thread(target=dataLog(f"[lateApplyModel] Changing models to done in {quickTimeMath(starttime, datetime.datetime.now())}", True, 1)).start()	
+	dataLog(f"[lateApplyModel] Changing models to done in {quickTimeMath(starttime, datetime.datetime.now())}", True, 1)
 
 def getVersion() -> str:
 	global Version
@@ -194,7 +194,7 @@ def getVersion() -> str:
 		Version = "Unknown"
 	return Version
 
-def listImageFiles():
+def listImageFiles() -> list:
 	global ImagesCache
 	starttime = datetime.datetime.now()
 	if ImagesCache is not None:
@@ -209,7 +209,7 @@ def listImageFiles():
 				while fn.startswith('/'):
 					fn = fn[1:]
 				ImagesCache.append(fn)
-	threading.Thread(target=dataLog(f"[listImageFiles] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
+	dataLog(f"[listImageFiles] done in {quickTimeMath(startTime=starttime)}", False, 2)
 	return ImagesCache
 
 
@@ -221,6 +221,7 @@ def getNameList() -> list[str]:
 	justFileNames = sorted(list(map(lambda f: os.path.relpath(f, AssetDir), fileList)))
 	return justFileNames
 
+@QuickCache(1000,"./cache/common")
 def fixDict(d: dict):
 	if d is None:
 		return None
@@ -228,6 +229,7 @@ def fixDict(d: dict):
 		raise RuntimeError(f"Value '{d}' is supposed to be submapping but isn't (it's plaintext, a list, or some other incorrect format). Did you typo the formatting?")
 	return {str(k).lower(): v for k, v in d.items()}
 
+@QuickCache(1000,"./cache/common")
 def cleanForWeb(text: str):
 	if text is None:
 		return None
@@ -235,22 +237,22 @@ def cleanForWeb(text: str):
 		raise RuntimeError(f"Value '{text}' is supposed to be text but isn't (it's a datamapping, list, or some other incorrect format). Did you typo the formatting?")
 	return text.replace('"', '&quot;')
 
-#@quickCache(maxsize=1000,localcache="./cache/aidCache")
+@QuickCache(1000,"./cache/common")
 def cleanId(id: str) -> str:
 	return re.sub("[^a-z0-9]", "_", id.lower().strip())
 
-#@quickCache(1000, "./cache/modeNameCache.y")
+@QuickCache(1000, "./cache/common")
 def cleanModeName(name: str) -> str:
     return name.lower().replace('[', '').replace(']', '').replace(' ', '').replace('\\', '/').replace('//', '/').strip()
 	
-@QuickCache(1000, "./cache/NameCache.y")
+@QuickCache(1000, "./cache/common")
 def cleanName(name: str) -> str:
 	cleanedName = re.sub(r'\[.*?\]', '', name)
 	cleanedName = cleanedName.lower().replace(' ', '').replace('\\', '/').replace('//', '/').strip()
 	cleanList[name] = cleanedName
 	return cleanedName
 
-@QuickCache(maxSize=1000,localCache="./cache/quickList.y")
+@QuickCache(maxSize=1000,localCache="./cache/quickList")
 def getQuickList(list:frozenset):
 	global quickListCache
     # Calculate a hash for the input list.
@@ -277,13 +279,12 @@ def getQuickList(list:frozenset):
 
 		return quickList
 
+@QuickCache(maxSize=1000,localCache="./cache/quickList")
 def getBestInList(name, list):
 	clean = cleanName(name)
-	dataLog(f"[getBestInList] name = {name} clean = {clean}", doprint=False, level=2)
-
+	#dataLog(f"[getBestInList] name = {name} clean = {clean}", doprint=False, level=2)
     # Get the quick list for the input list.
 	quickList = getQuickList(frozenset(list))
-
 	if clean in quickList:
 		return quickList[clean][0]
 	else:
@@ -294,9 +295,9 @@ def chooseBetterFileName(rawName: str, fullName: str) -> str:
 	starttime = datetime.datetime.now()
 	partialName = os.path.splitext(os.path.basename(fullName))[0]
 	if '/' in rawName or '\\' in rawName or '.' in rawName or len(rawName) >= len(partialName):
-		threading.Thread(target=dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
+		dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)
 		return rawName
-	threading.Thread(target=dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)).start()
+	dataLog(f"[chooseBetterFileName] done in {quickTimeMath(startTime=starttime)}", False, 2)
 	return partialName
 
 @QuickCache(maxSize=1000, localCache="./cache/fixNum")
@@ -348,14 +349,14 @@ class GridSettingMode:
 		self.clean = clean
 		self.validList = validList
 
-def registerMode(name: str, mode: GridSettingMode):
+def registerMode(name: str, mode: GridSettingMode) -> None:
 	mode.name = name
 	validModes[cleanModeName(name)] = mode
 
 ######################### Validation #########################
 
 #@quickCache(maxsize=1000, localcache="./cache/validParams")
-def validateParams(grid, params: dict):
+def validateParams(grid, params: dict) -> None:
 	global paramcache
 	phash = hashlib.blake2s(str(params).encode()).hexdigest()
 	if phash in paramcache:
@@ -464,9 +465,9 @@ class AxisValue:
 			if not self.skip:
 				threading.Thread(validateParams(grid, self.params)).start()
 	
-	def __str__(self):
+	def __str__(self) -> str:
 		return f"(title={self.title}, description={self.description}, params={self.params})"
-	def __unicode__(self):
+	def __unicode__(self) -> str:
 		return self.__str__()
 
 class Axis:
@@ -542,7 +543,7 @@ class GridFileHelper:
 		self.author = self.gridObj.get("author")
 		self.format = self.gridObj.get("format")
 		self.OutPath = self.gridObj.get("outpath")
-		threading.Thread(target=dataLog(f"saving to {self.OutPath}", True, 1)).start()
+		dataLog(f"saving to {self.OutPath}", True, 1)
 		if self.title is None or self.description is None or self.author is None or self.format is None:
 			raise RuntimeError(f"Invalid file {gridFile}: missing grid title, author, format, or description in grid obj {self.gridObj}")
 		self.params = fixDict(self.gridObj.get("params"))
@@ -595,7 +596,7 @@ class SingleGridCall:
 		if gridCallInitHook is not None:
 			gridCallInitHook(self)
 
-	def flattenParams(self):
+	def flattenParams(self) -> None:
 		global grid
 		self.params = grid.params.copy() if grid.params is not None else dict()
 		for val in self.values:
@@ -679,7 +680,7 @@ class GridRunner:
 	def preprocess(self):
 		self.valueSetsTemp = self.buildValueSetList(list(reversed(self.grid.axes)))
 		self.valueSets = []
-		threading.Thread(target=dataLog(f'Have {len(self.valueSetsTemp)} unique value sets, will go into {self.basePath}', True, 1)).start()
+		dataLog(f'Have {len(self.valueSetsTemp)} unique value sets, will go into {self.basePath}', True, 1)
 		for set in self.valueSetsTemp:
 			set.filepath = self.basePath + '/' + '/'.join(list(map(lambda v: cleanName(v.key), set.values)))
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
@@ -728,7 +729,7 @@ class GridRunner:
 				#print(f'On {i+1}/{len(promptbatchlist)} ... Prompts: {p2.prompt[0]}')
 				#p2 = StableDiffusionProcessing(p2)
 				start2 = datetime.datetime.now()
-				threading.Thread(target=dataLog(f"[mainRun] start time: {start2}", True, 2)).start()
+				dataLog(f"[mainRun] start time: {start2}", True, 2)
 				if id(p2) in modelchange.keys():
 					lateapplyModel(p2,modelchange[id(p2)])
 				if gridRunnerPreDryHook is not None:
@@ -737,8 +738,8 @@ class GridRunner:
 					last = gridRunnerRunPostDryHook(self, p2, appliedsets)
 					#self.updateLiveFile(set.filepath + "." + self.grid.format)
 				except Exception as e: 
-					threading.Thread(target=dataLog("[mainRun] image failed to generate. please restart later", True, 0)).start()
-					threading.Thread(target=dataLog(f"[mainRun] exception: {e}", False, 0)).start()
+					dataLog("[mainRun] image failed to generate. please restart later", True, 0)
+					dataLog(f"[mainRun] exception: {e}", False, 0)
 					continue
 				try:
 					if p2.hasPostProcessing:
@@ -756,7 +757,7 @@ class GridRunner:
 					aset = deepcopy(appliedsets)
 					for iterator, img in enumerate(last.images):
 						set = list(aset)[iterator]
-						threading.Thread(target=dataLog(f"saving to {set.filepath}", True, 1)).start()
+						dataLog(f"saving to {set.filepath}", True, 1)
 						images.save_image(img, path=os.path.dirname(set.filepath), basename="",
 							forced_filename=os.path.basename(set.filepath), save_to_dirs=False,
 							extension=grid.format, p=p2, prompt=p2.prompt[iterator],seed=last.seed)
@@ -777,9 +778,9 @@ class GridRunner:
 				end2 = datetime.datetime.now()
 				steptotal = (end2 - start2).total_seconds()
 				print(f'the last batch took {steptotal:.2f} for {p2.batch_size} images. an average generation speed of {steptotal / p2.batch_size} per image, and {steptotal / p2.batch_size / p2.steps} seconds per image step')
-				threading.Thread(target=dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)).start()
+				dataLog(f'{steptotal:.2f}\t{p2.batch_size}\t{steptotal / p2.batch_size}\t{steptotal/p2.batch_size/p2.steps}\t{p2.sampler_name}\t{p2.height}\t{p2.width}', False, 0)
 		endtime = datetime.datetime.now()
-		threading.Thread(target=dataLog(f'Done, Time Taken: {(endtime - starttime).total_seconds():.2f}', True, 2)).start()
+		dataLog(f'Done, Time Taken: {(endtime - starttime).total_seconds():.2f}', True, 2)
 		return last
 	
 	def batchPromptsGrouping(self, promptList: list, promptKey: StableDiffusionProcessing) -> list:
@@ -834,7 +835,7 @@ class GridRunner:
 					
 					if not all(hasattr(tempprompt2, attr) for tempprompt2 in promgroup for attr in dir(tempprompt)):
 						fail = True
-						threading.Thread(target=dataLog(f"prompt does not contain {str(attr)} can not merge", False, 0)).start()
+						dataLog(f"prompt does not contain {str(attr)} can not merge", False, 0)
 						break
 					for attr in dir(tempprompt):
 						if attr.startswith("__"): continue
@@ -846,12 +847,12 @@ class GridRunner:
 							else: 
 								fail = True
 								if it == 1: 
-									threading.Thread(target=dataLog(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempprompt, attr))}", False, 0)).start()
-								threading.Thread(target=dataLog(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}", False, 0)).start()
+									dataLog(f"Prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(tempprompt, attr))}", False, 0)
+								dataLog(f"prompt contains incorrect {str(attr)} merge unavailable. values are: {str(getattr(prompt_attr, attr))}", False, 0)
 								break
 						except AttributeError:
 							print(tempprompt)
-							threading.Thread(target=dataLog(prompt_attr, False, 0)).start()
+							dataLog(prompt_attr, False, 0)
 							raise
 			if not fail:
 				merged_prompt = prompt_attr
