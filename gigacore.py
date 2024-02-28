@@ -879,7 +879,7 @@ class GridRunner:
 					#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
 					#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
 					processor.gigauncomp['savePath'] = [item[2].filepath for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
-					processor.gigauncomp['appliedSet'] = [item[2] for item in [processor]]
+					processor.gigauncomp['appliedSet'] = [item[2] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
 					stepProcessor.append(processor)
 
 
