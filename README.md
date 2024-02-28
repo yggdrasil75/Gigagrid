@@ -14,6 +14,20 @@ Numeric prompt replace: you can use "prompt replace 1" up to "prompt replace 9" 
 
 Negative Prompt Replace: you can use "n prompt replace" or "negative prompt replace" (with negative allowing 1-9 similar to normal.)
 
+Output Scaling: much like the outwidth/outheight parameters, this will scale the image based on the float you input using lanczos.
+
+OTF caching: Using caching, the startup time of the script has been significantly improved.
+
+Colored logging: errors are sent to STDERR as well. this isnt that important though.
+
+Cleaner application of models and such: vae and model parameters were changing what was selected and then attempting to revert. this now just sets it for that prompt.
+
+Checks for ymls in txt2img grids output, the "grids" output, and the img2img grids output folders. place your yml anywhere. (well, at least more places)
+
+Cleaned up path setting: now if you are on linux, it displays \\. If you are on Windows, it displays /.
+
+Fixes the Style bug: you can now have multiple styles in a grid on different axes without it freaking out.
+
 # Stable Diffusion Infinity Grid Generator
 
 ![img](github/megagrid_ref.png)
@@ -58,11 +72,6 @@ The disadvantage is that time to generate a grid is exponential - if you have 5 
 
 --------------
 
-### Examples
-
-Here's a big MegaGrid using almost every mode option in one, with detailed educational descriptions on every part: https://sd.mcmonkey.org/megagrid/
-
-Here's a very small web demo you can try to test how the output looks and works: https://mcmonkeyprojects.github.io/short_example and you can view the generated asset files for that demo [here](https://github.com/mcmonkeyprojects/mcmonkeyprojects.github.io/tree/master/short_example).
 
 ![img](github/simple_ref.png)
 
@@ -177,8 +186,9 @@ axes:
 | `CFG Scale` | Decimal | `5`, `7.5`, `12`, ... | |
 | `Width` | Integer | `512`, `768`, ... | Initial generation width. |
 | `Height` | Integer | `512`, `768`, ... | Initial generation height. |
-| `Out Width` | Integer | `512`, `768`, ... | What resolution to save the image as (if unspecified, uses `Width`). Useful to save filespace. |
+| `Out Width` | Integer | `512`, `768`, ... | What resolution to save the image as (if unspecified, uses `Width`). |
 | `Out Height` | Integer | `512`, `768`, ... | Refer to `Out Width`. |
+| `Out Scale` | Float | `1.5`, `2.0`, `0.5`, ... | This will scale using lanczos the image based on the number inputted. this is applied after and with the above 2 (width/height). |
 | `Clip Skip` | Integer | `1`, `2` | Use `2` for NAI-like models, `1` for the rest. |
 | `Var Seed` | Integer | `0`, `1`, ... | Variation seed, use with `Var Strength`. |
 | `Var Strength` | Decimal | `0`, `0.5`, ..., `1` | Variation seed strength. |

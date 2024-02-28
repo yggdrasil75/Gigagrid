@@ -6,8 +6,8 @@ assets/images/**/*.jpg
 assets/images/**/*.webp
 Github/
 .github
-infinity_grid.build/
-infinity_grid.dist/
+*.build/
+*.dist/
 *.pyi
 *.pyd
 *.pyc

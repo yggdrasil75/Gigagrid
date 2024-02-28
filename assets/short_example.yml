@@ -30,6 +30,7 @@ grid:
         # If you set eg 256x256, it will save significant file space.
         OutWidth: 256
         OutHeight: 256
+        batch size: 4
     # Can specify the format as either 'jpg' or 'png'
     # jpg makes smaller file sizes, with slightly lower quality
     # png makes bigger file sizes, at better quality
