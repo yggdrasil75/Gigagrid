@@ -211,6 +211,10 @@ def tryInit():
 	registerMode("Out Width", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("inf_grid_out_width")))
 	registerMode("Out Height", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("inf_grid_out_height")))
 	registerMode("Out Scale", GridSettingMode(dry=True, type=float, min=0, apply=applyGigaField("inf_grid_out_scale")))
+
+	#not finalized. this sets the number of other items that will be compared to each to merge based on steps.
+	#This will be set to 1000 by default to prevent n^2 at high numbers being slow and instead become 1000^2*n (or something like that)
+	registerMode("Max Compare", GridSettingMode(dry=True, type=float, min=0, apply=applyGigaField("maxStepComp"))) 
 	registerMode("Image Mask Weight", GridSettingMode(dry=True, type=float, min=0, max=1, apply=applyField("inpainting_mask_weight")))
 	registerMode("HighRes Scale", GridSettingMode(dry=True, type=float, min=1, max=16, apply=applyField("hr_scale")))
 	registerMode("HighRes Steps", GridSettingMode(dry=True, type=int, min=0, max=200, apply=applyField("hr_second_pass_steps")))

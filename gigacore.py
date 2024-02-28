@@ -1,5 +1,6 @@
 # This file is part of Infinity Grid Generator, view the README.md at https://github.com/yggdrasil75/Gigagrid for more information.
 
+import itertools
 import os, glob, yaml, json, shutil, math, re, threading, hashlib, types, datetime, re, atexit, signal, multiprocessing, html as HTMLModule, logging, sys
 from multiprocessing import Pool, cpu_count as cpuCount
 from modules import sd_models as sdModels, images, processing
@@ -822,16 +823,20 @@ class GridRunner:
 		# Create a copy of processors to avoid modifying the original list
 		for processors in processorsMerged.values():
 			if not self.skipStepGroups:
-				remaining_processors = processors[:]
+				#remaining_processors = processors[:]
 				removed = []
 				#with concurrent.futures.ThreadPoolExecutor() as executor:
 				for processor1 in processors:
+					try:
+						remainingProcessors = itertools.islice(processors, processor.giga['maxStempComp'])
+					except:
+						remainingProcessors = itertools.islice(processors, 1000)
 					processor = copy(processor1)  # Create a deep copy?
 					if processor1 in removed: continue
 					stepgroup = [(processor1, processor1.steps, self.appliedSets[id(processor1)][0])]
 
 					to_remove = [processor1]  # Processors to remove from remaining_processors
-					for processor2 in remaining_processors:
+					for processor2 in remainingProcessors:
 						if processor2 in to_remove: continue
 						if self.compareProcessor(processor1, processor2, ['steps', 'giga']):
 							stepgroup.append((processor2, processor2.steps, self.appliedSets[id(processor2)][0]))
@@ -840,28 +845,41 @@ class GridRunner:
 							to_remove.append(processor2)
 					for processor in to_remove:
 						removed.extend(to_remove)
-						if processor in remaining_processors:
-							remaining_processors.remove(processor)
+						if processor in remainingProcessors:
+							remainingProcessors.remove(processor)
 
-				setattr(processor, 'giga', {})
-				setattr(processor, 'gigauncomp', {})
-				processor.giga['multistep'] = [item[1] for item in stepgroup]
-				processor.steps = max(processor.giga['multistep'])
-				#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
-				#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
-				processor.gigauncomp['savePath'] = [item[2].filepath for item in stepgroup]
-				processor.gigauncomp['appliedSet'] = [item[2] for item in stepgroup]
-				stepProcessor.append(processor)
+					try: 
+						setattr(processor, 'giga', processor.giga)
+					except:
+						setattr(processor, 'giga', {})
+					try:
+						setattr(processor, 'gigauncomp', processor.gigauncomp)
+					except:
+						setattr(processor, 'gigauncomp', {})
+
+					processor.giga['multistep'] = [item[1] for item in stepgroup]
+					processor.steps = max(processor.giga['multistep'])
+					#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
+					#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
+					processor.gigauncomp['savePath'] = [item[2].filepath for item in stepgroup]
+					processor.gigauncomp['appliedSet'] = [item[2] for item in stepgroup]
+					stepProcessor.append(processor)
 			else:
 				for processor in processors:
-					setattr(processor, 'giga', {})
-					setattr(processor, 'gigauncomp', {})
+					try: 
+						setattr(processor, 'giga', processor.giga)
+					except:
+						setattr(processor, 'giga', {})
+					try:
+						setattr(processor, 'gigauncomp', processor.gigauncomp)
+					except:
+						setattr(processor, 'gigauncomp', {})
 					processor.giga['multistep'] = [item[1] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
 					processor.steps = max(processor.giga['multistep'])
 					#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
 					#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
 					processor.gigauncomp['savePath'] = [item[2].filepath for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
-					processor.gigauncomp['appliedSet'] = [item[2] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
+					processor.gigauncomp['appliedSet'] = [item[2] for item in [processor]]
 					stepProcessor.append(processor)
 
 
