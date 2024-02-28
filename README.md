@@ -42,8 +42,6 @@ An "infinite axis grid" is like an X/Y plot grid, but with, well, more axes on i
 
 The primary goal is to let people generate their own fancy grids to explore how different settings affect their renders in a convenient form.
 
-Another goal of this system is to develop educational charts, to provide a universal answer to the classic question of "what does (X) setting do? But what about with (Y)?" - [The MegaGrid](https://sd.mcmonkey.org/megagrid/). There is a built in ability to add description text to fields, for the specific purpose of enhancing educational page output.
-
 ### Pros/Cons
 
 The advantage of this design is it allows you to rapidly compare the results of different combinations of settings, without having to wait to for generation times for each specific sub-grid as-you-go - you just run it all once in advance (perhaps overnight for a large run), and then after that browse through it in realtime.
@@ -77,12 +75,6 @@ The disadvantage is that time to generate a grid is exponential - if you have 5 
 
 --------------
 
-### Status
-
-Current overall project status (as of Feb 2023): **Works well, actively maintained**. Has been generally well tested.
-
---------------
-
 ### Installation
 
 - You must have the [AUTOMATIC1111 Stable Diffusion WebUI](https://github.com/AUTOMATIC1111/stable-diffusion-webui) already installed and working. Refer to that project's readme for help with that.
@@ -93,7 +85,7 @@ Current overall project status (as of Feb 2023): **Works well, actively maintain
     - Scroll down to find `Infinity Grid Generator`, or use `CTRL+F` to find it
 - -OR- Option **B**:
     - Click on `Install from URL`
-    - Copy/paste this project's URL into the `URL for extension's git repository` textbox: `https://github.com/mcmonkeyprojects/sd-infinity-grid-generator-script`
+    - Copy/paste this project's URL into the `URL for extension's git repository` textbox: `https://github.com/yggdrasil75/Gigagrid`
 - Click `Install`
 - Restart or reload the WebUI
 
@@ -354,17 +346,6 @@ If you want to add more content to a grid you already made, you can do that:
 
 ----------------------
 
-### Common Issues
-
-```
-  File "stable-diffusion-webui\modules\images.py", line 508, in _atomically_save_image
-    image_format = Image.registered_extensions()[extension]
-KeyError: '.jpg'
-```
-If you have this error, just hit generate again. I'm not sure why it happens, it just does at random sometimes on the first time the WebUI starts up. It seems to happen when you use `OutWidth`/`OutHeight` settings and is prevented by running any generation without a custom out-resolution. Might be some required initialization is getting skipped when an image is rescaled?
-
-----------------------
-
 ### Licensing pre-note:
 
 This is an open source project, provided entirely freely, for everyone to use and contribute to.
@@ -379,7 +360,7 @@ You can do basically whatever you want, except you may not hold any developer li
 
 The MIT License (MIT)
 
-Copyright (c) 2022-2023 Alex "mcmonkey" Goodwin
+Copyright (c) 2022-2023 Yggdrasil75
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
