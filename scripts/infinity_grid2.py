@@ -191,8 +191,8 @@ def tryInit():
 	fields = ["subseed", "seed",  "width", "height"]
 	for field, mode in enumerate(modes):
 		registerMode(mode, GridSettingMode(dry=True, type=int, apply=applyField(fields[field])))
-	modes = ["prompt", "negative prompt", "random"]
-	fields = ["prompt", "negative_prompt", "randomtime"]
+	modes = ["prompt", "negative prompt"]
+	fields = ["prompt", "negative_prompt"]
 	for field, mode in enumerate(modes):
 		registerMode(mode, GridSettingMode(dry=True, type=str, apply=applyField(fields[field])))
 	
@@ -211,6 +211,7 @@ def tryInit():
 	registerMode("Out Width", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("inf_grid_out_width")))
 	registerMode("Out Height", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("inf_grid_out_height")))
 	registerMode("Out Scale", GridSettingMode(dry=True, type=float, min=0, apply=applyGigaField("inf_grid_out_scale")))
+	registerMode("group", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("sortgroup")))
 
 	#not finalized. this sets the number of other items that will be compared to each to merge based on steps.
 	#This will be set to 1000 by default to prevent n^2 at high numbers being slow and instead become 1000^2*n (or something like that)

@@ -28,6 +28,13 @@ Cleaned up path setting: now if you are on linux, it displays \\. If you are on 
 
 Fixes the Style bug: you can now have multiple styles in a grid on different axes without it freaking out.
 
+Sorting: if "sort: True" is set, then the script will automatically sort based on 4 factors: sort group (integer, in normal order), model (in webui provided order), vae (webui order), sampler (again: webui order), and triangle bracketed content (ie: lora, lycoris, etc). all other factors will be ignored for sorting (this may change in the future or it may eventually be able to be set by the user. dont know yet) - this is implemented to maximize the batch size as well as speed up step grouping and prevent that from having issues.
+
+Randomize: if "randomize: true" is set, then the script will randomize the order of all values, this is useful if you have a massive list and dont feel like watching as it goes 1 by 1. this is applied before sorting and can be combined: random prompt order within a sort group. 
+
+
+
+
 # Stable Diffusion Infinity Grid Generator
 
 ![img](github/megagrid_ref.png)
@@ -166,6 +173,7 @@ axes:
 | --- | --- | --- | ----------- |
 | `Sampler` | Named | `DDIM`, `euler`, ... | |
 | `Model` | Filename | `sd-v1-5` | Note that `Model` and `VAE` are **global settings**, and as such you should not have an axis where some values specify one of those params but others don't, as this will cause an unpredictable model selection for the values that lack specificity. |
+| `group` | int | `1`, `2`, `3` | This sets a "sort group" for the new sorting function. if you use this, then before anything else, the number set will take priority. |
 | `VAE` | Filename | `kl-f8-anime2` | See note on `Model` above |
 | `Prompt` | Text | `a cat` | |
 | `Negative Prompt` | Text | `gross, weird, bad` | |
