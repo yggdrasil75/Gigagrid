@@ -780,8 +780,8 @@ class GridRunner:
 						original_width = p3.width
 						original_height = p3.height
 						scale_factor = p3.giga.get('inf_grid_out_scale', 1.0)
-						new_width = p3.giga.get('ing_grid_out_width', original_width) * scale_factor
-						new_height = p3.giga.get('ing_grid_out_height', original_height) * scale_factor
+						new_width = p3.giga.get('inf_grid_out_width', original_width) * scale_factor
+						new_height = p3.giga.get('inf_grid_out_height', original_height) * scale_factor
 
 						if 'inf_grid_out_width' in p3.giga and 'inf_grid_out_height' not in p3.giga:
 							new_height = int(original_height * (new_width / original_width))
