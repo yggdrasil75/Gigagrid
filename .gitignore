@@ -13,3 +13,4 @@ Github/
 *.pyc
 *.cpython-310.pyc
 
+nuitka-crash-report.xml
