@@ -4,6 +4,7 @@ import itertools
 import os, glob, yaml, json, shutil, math, re, threading, hashlib, types, datetime, re, atexit, signal, multiprocessing, html as HTMLModule, logging, sys
 import random
 from multiprocessing import Pool, cpu_count as cpuCount
+#from customlanczos import lanczos_upscale
 from modules import sd_models as sdModels, images, processing
 from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img, Processed
 from modules.shared import opts
@@ -33,6 +34,7 @@ lock = threading.Lock()
 cleanList: dict = {}
 MixModels: list = []
 logger = None
+path_cache:dict = {}
 
 ######################### Hooks #########################
 
@@ -55,6 +57,33 @@ webDataGetBaseParamData: callable = None
 
 ######################### Utilities #########################
 
+def checkPathFast(path):
+	if path in path_cache:
+		return path_cache[path]
+
+	# Split the path into components
+	components = path.split(os.sep)
+
+	# Check existence of parent folders
+	parent_folder = ''
+	for component in components[:-1]:
+		parent_folder = os.path.join(parent_folder, component)
+		if parent_folder in path_cache:
+			if not path_cache[parent_folder]:
+				path_cache[path] = False
+				return False
+		else:
+			parent_exists = os.path.exists(parent_folder)
+			path_cache[parent_folder] = parent_exists
+			if not parent_exists:
+				path_cache[path] = False
+				return False
+
+	# Check existence of the path itself
+	path_exists = os.path.exists(path)
+	path_cache[path] = path_exists
+	return path_exists
+
 def DataLog(message: str, doprint: bool, level: int) -> None:
 	try:
 		if not os.path.exists(logFile):
@@ -62,6 +91,7 @@ def DataLog(message: str, doprint: bool, level: int) -> None:
 		with open(logFile, 'a+', encoding="utf-8") as f:
 			f.write(str(message))
 			f.write('\n')
+			f.close()
 	except: print(f"[datalog] used before defining logFile, value: {str(message)}")
 	
 	if doprint: # and printLevel >= level:
@@ -341,6 +371,13 @@ def applyGigaField(name: str):
 		p.giga[name] = v
 	return applier
 
+def appendGigaField(name: str):
+	def applier(p, v):
+		if not hasattr(p, 'giga'):
+			setattr(p, 'giga', {})
+		p.giga[vars].append(v)
+	return applier
+
 def applyFieldAsImageData(name: str):
 	def applier(p, v):
 		fName = getBestInList(v, listImageFiles())
@@ -529,11 +566,16 @@ class SingleGridCall:
 					skipDict['title'] = skipDict['title'] + val.skipList['title']
 				if 'params' in val.skipList.keys():
 					skipDict['params'] = skipDict['params'] + val.skipList['params']
+				if 'group' in val.skipList.keys():
+					skipDict['group'] = skipDict['group'] + val.skipList['group']
 				
+
 			if hasattr(val, 'title'):
 				titles.append(str(val.title))
 			if hasattr(val, 'params'):
 				params.append(str(val.params))
+			if hasattr(val, 'group'):
+				params.append(str(val.group))
 		skipTitle = skipDict['title']
 		skipParams = skipDict['params']
 		if skipTitle is not None:
@@ -560,14 +602,13 @@ class SingleGridCall:
 	def applyTo(self, p: StableDiffusionProcessing):
 		for name, val in self.params.items():
 			mode = validModes[cleanModeName(name)]
-			if name == cleanModeName("Temp Mixed Model"):
-				MixModels.append(id(p))
+			#if name == cleanModeName("Temp Mixed Model"):
+			#	MixModels.append(id(p))
 
 			mode.apply(p, val)
 
-		if gridCallApplyHook is not None:
-			gridCallApplyHook(self, p)
-
+		#if gridCallApplyHook is not None:
+		gridCallApplyHook(self, p)
 
 class GridRunner:
 	def __init__(self, doOverwrite: bool, basePath: str, promptskey: StableDiffusionProcessing):
@@ -635,11 +676,13 @@ class GridRunner:
 			set.filepath = os.path.join(self.basePath, *map(lambda v: v.path, set.values))
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
 			set.flattenParams()
-			if set.skip or (not self.doOverwrite and os.path.exists(os.path.join(set.filepath))):
+			if set.skip or (not self.doOverwrite and checkPathFast(os.path.join(set.filepath))):
 				self.totalSkip += 1
 			else:
 				self.totalRun += 1
 				self.valueSets.append(set)
+		
+		DataLog(f'Done with Preprocess', False, 2)
 
 	def calculateSteps(self, processors):
 		for item in processors:
@@ -732,6 +775,21 @@ class GridRunner:
 					#aset = copy(appliedsets)
 					last2:Processed = copy(last)
 					p3:StableDiffusionProcessing = copy(x=p2)
+
+					if 'inf_grid_out_width' in p3.giga or 'inf_grid_out_height' in p3.giga or 'inf_grid_out_scale' in p3.giga:
+						original_width = p3.width
+						original_height = p3.height
+						scale_factor = p3.giga.get('inf_grid_out_scale', 1.0)
+						new_width = p3.giga.get('ing_grid_out_width', original_width) * scale_factor
+						new_height = p3.giga.get('ing_grid_out_height', original_height) * scale_factor
+
+						if 'inf_grid_out_width' in p3.giga and 'inf_grid_out_height' not in p3.giga:
+							new_height = int(original_height * (new_width / original_width))
+						elif 'inf_grid_out_height' in p3.giga and 'inf_grid_out_width' not in p3.giga:
+							new_width = int(original_width * (new_height / original_height))
+
+						upscale = True
+
 					def getCurrentStepSavepath(p, step):
 						# Get the index of the current step in multistep
 						stepmult = p.giga['multistep'].index(step)
@@ -762,6 +820,10 @@ class GridRunner:
 							extension=grid.format, p=p3, prompt=prompt,seed=seed, info=info)
 					#print(p3.gigauncomp['savePath'])
 					for iterator, img in enumerate(last2.images):
+						
+						if upscale == True:
+							img = img.resize((int(new_width), int(new_height)), resample=images.LANCZOS)
+							#img = lanczos_upscale(img, new_height, new_width, p3.giga.get('upsamplewindow', 4), p3.giga.get('upsamplekey', 3))
 						#set = list(aset)[iterator]
 						path = savePaths[iterator]
 						#print(path)
@@ -871,7 +933,10 @@ class GridRunner:
 		mergedDict: dict = {}
 
 		for processor in processors:
-			model = processor.override_settings['sd_model_checkpoint']
+			try:
+				model = processor.override_settings['sd_model_checkpoint']
+			except:
+				model = opts.sd_model_checkpoint
 			sampler = processor.sampler_name
 
 			# Combine the model and sampler names to create the key
@@ -889,69 +954,69 @@ class GridRunner:
 		print(f"starting at: {start1}")
 		stepProcessor = []  # List to store the modified processors
 		print(f"There will be {len(processors)} images saved")
-		processorsMerged = self.preGroup(processors)
+		#processorsMerged = self.preGroup(processors)
 		self.skipStepGroups = True #future feature that needs bug fixing.
 		# Create a copy of processors to avoid modifying the original list
-		for processors in processorsMerged.values():
-			if not self.skipStepGroups:
-				#remaining_processors = processors[:]
-				removed = []
-				#with concurrent.futures.ThreadPoolExecutor() as executor:
-				for processor1 in processors:
-					try:
-						remainingProcessors = itertools.islice(processors, processor.giga['maxStempComp'])
-					except:
-						remainingProcessors = itertools.islice(processors, 1000)
-					processor = copy(processor1)  # Create a deep copy?
-					if processor1 in removed: continue
-					stepgroup = [(processor1, processor1.steps, self.appliedSets[id(processor1)][0])]
+		#for processors in processorsMerged.values():
+		if not self.skipStepGroups:
+			#remaining_processors = processors[:]
+			removed = []
+			#with concurrent.futures.ThreadPoolExecutor() as executor:
+			for processor1 in processors:
+				try:
+					remainingProcessors = itertools.islice(processors, processor.giga['maxStempComp'])
+				except:
+					remainingProcessors = itertools.islice(processors, 1000)
+				processor = copy(processor1)  # Create a deep copy?
+				if processor1 in removed: continue
+				stepgroup = [(processor1, processor1.steps, self.appliedSets[id(processor1)][0])]
 
-					to_remove = [processor1]  # Processors to remove from remaining_processors
-					for processor2 in remainingProcessors:
-						if processor2 in to_remove: continue
-						if self.compareProcessor(processor1, processor2, ['steps', 'giga']):
-							stepgroup.append((processor2, processor2.steps, self.appliedSets[id(processor2)][0]))
-							if processor.steps < processor2.steps:
-								processor.steps = processor2.steps
-							to_remove.append(processor2)
-					for processor in to_remove:
-						removed.extend(to_remove)
-						if processor in remainingProcessors:
-							remainingProcessors.remove(processor)
+				to_remove = [processor1]  # Processors to remove from remaining_processors
+				for processor2 in remainingProcessors:
+					if processor2 in to_remove: continue
+					if self.compareProcessor(processor1, processor2, ['steps', 'giga']):
+						stepgroup.append((processor2, processor2.steps, self.appliedSets[id(processor2)][0]))
+						if processor.steps < processor2.steps:
+							processor.steps = processor2.steps
+						to_remove.append(processor2)
+				for processor in to_remove:
+					removed.extend(to_remove)
+					if processor in remainingProcessors:
+						remainingProcessors.remove(processor)
 
-					try: 
-						setattr(processor, 'giga', processor.giga)
-					except:
-						setattr(processor, 'giga', {})
-					try:
-						setattr(processor, 'gigauncomp', processor.gigauncomp)
-					except:
-						setattr(processor, 'gigauncomp', {})
+				try: 
+					setattr(processor, 'giga', processor.giga)
+				except:
+					setattr(processor, 'giga', {})
+				try:
+					setattr(processor, 'gigauncomp', processor.gigauncomp)
+				except:
+					setattr(processor, 'gigauncomp', {})
 
-					processor.giga['multistep'] = [item[1] for item in stepgroup]
-					processor.steps = max(processor.giga['multistep'])
-					#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
-					#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
-					processor.gigauncomp['savePath'] = [item[2].filepath for item in stepgroup]
-					processor.gigauncomp['appliedSet'] = [item[2] for item in stepgroup]
-					stepProcessor.append(processor)
-			else:
-				for processor in processors:
-					try: 
-						setattr(processor, 'giga', processor.giga)
-					except:
-						setattr(processor, 'giga', {})
-					try:
-						setattr(processor, 'gigauncomp', processor.gigauncomp)
-					except:
-						setattr(processor, 'gigauncomp', {})
-					processor.giga['multistep'] = [item[1] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
-					processor.steps = max(processor.giga['multistep'])
-					#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
-					#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
-					processor.gigauncomp['savePath'] = [item[2].filepath for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
-					processor.gigauncomp['appliedSet'] = [item[2] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
-					stepProcessor.append(processor)
+				processor.giga['multistep'] = [item[1] for item in stepgroup]
+				processor.steps = max(processor.giga['multistep'])
+				#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
+				#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
+				processor.gigauncomp['savePath'] = [item[2].filepath for item in stepgroup]
+				processor.gigauncomp['appliedSet'] = [item[2] for item in stepgroup]
+				stepProcessor.append(processor)
+		else:
+			for processor in processors:
+				try: 
+					setattr(processor, 'giga', processor.giga)
+				except:
+					setattr(processor, 'giga', {})
+				try:
+					setattr(processor, 'gigauncomp', processor.gigauncomp)
+				except:
+					setattr(processor, 'gigauncomp', {})
+				processor.giga['multistep'] = [item[1] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
+				processor.steps = max(processor.giga['multistep'])
+				#processor.gigauncomp['simpleUpscaleH'] = {item[2].key: [item[2].value] for item in mheight}
+				#processor.gigauncomp['simpleUpscaleW'] = {item[2].key: [item[2].value] for item in mwidth}
+				processor.gigauncomp['savePath'] = [item[2].filepath for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
+				processor.gigauncomp['appliedSet'] = [item[2] for item in [(processor, processor.steps, self.appliedSets[id(processor)][0])]]
+				stepProcessor.append(processor)
 
 
 		DataLog(f"To prevent reworking, there will be {len(stepProcessor)} images generated, saving at various step counts between them.", True, 1)

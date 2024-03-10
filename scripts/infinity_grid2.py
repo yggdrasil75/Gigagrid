@@ -68,52 +68,44 @@ def applyRestoreFaces(p, v):
 		opts.face_restoration_model = restorer
 
 def applyPromptReplace(p, v):
-	if not '\n' in v:
-		val = v.split('=', maxsplit=1)
-		if len(val) != 2:
-			raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{v}'")
-		match = val[0].strip()
-		replace = val[1].strip()
-		if Script.VALIDATE_REPLACE:
-			if match not in p.prompt:
-				raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}' nor negative prompt '{p.negative_prompt}'")
-		p.prompt = p.prompt.replace(match, replace)
-	else:
-		valList = list(v)
-		for valitem in v:
-			val = v.split('=', maxsplit=1)
-			if len(val) != 2:
-				raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{v}'")
-			match = val[0].strip()
-			replace = val[1].strip()
-			if Script.VALIDATE_REPLACE:
-				if match not in p.prompt and match not in p.negative_prompt:
-					raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}' nor negative prompt '{p.negative_prompt}'")
-			p.prompt = p.prompt.replace(match, replace)
+    if '\n' not in v:
+        match, replace = v.split('=', maxsplit=1)
+        match = match.strip()
+        replace = replace.strip()
+        if Script.VALIDATE_REPLACE and match not in p.prompt:
+            raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}'")
+        p.prompt = p.prompt.replace(match, replace)
+    else:
+        lines = v.split('\n')
+        for line in lines:
+            if '=' not in line:
+                raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{line}'")
+            match, replace = line.split('=', maxsplit=1)
+            match = match.strip()
+            replace = replace.strip()
+            if Script.VALIDATE_REPLACE and match not in p.prompt:
+                raise RuntimeError(f"Invalid prompt replace, '{match}' is not in prompt '{p.prompt}'")
+            p.prompt = p.prompt.replace(match, replace)
 			
 def applyNegPromptReplace(p, v):
-	if not '\n' in v:
-		val = v.split('=', maxsplit=1)
-		if len(val) != 2:
-			raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{v}'")
-		match = val[0].strip()
-		replace = val[1].strip()
-		if Script.VALIDATE_REPLACE:
-			if match not in p.negative_prompt:
-				raise RuntimeError(f"Invalid prompt replace, '{match}' is not in negative prompt '{p.negative_prompt}'")
-		p.negative_prompt = p.negative_prompt.replace(match, replace)
-	else:
-		valList = list(v)
-		for valitem in valList:
-			val = valitem.split('=', maxsplit=1)
-			if len(val) != 2:
-				raise RuntimeError(f"Invalid prompt replace, missing '=' symbol, for '{valitem}'")
-			match = val[0].strip()
-			replace = val[1].strip()
-			if Script.VALIDATE_REPLACE:
-				if match not in p.negative_prompt:
-					raise RuntimeError(f"Invalid prompt replace, '{match}' is not in negative prompt '{p.negative_prompt}'")
-			p.negative_prompt = p.negative_prompt.replace(match, replace)
+    if '\n' not in v:
+        match, replace = v.split('=', maxsplit=1)
+        match = match.strip()
+        replace = replace.strip()
+        if Script.VALIDATE_REPLACE and match not in p.negative_prompt:
+            raise RuntimeError(f"Invalid negative_prompt replace, '{match}' is not in negative_prompt '{p.negative_prompt}'")
+        p.negative_prompt = p.negative_prompt.replace(match, replace)
+    else:
+        lines = v.split('\n')
+        for line in lines:
+            if '=' not in line:
+                raise RuntimeError(f"Invalid negative_prompt replace, missing '=' symbol, for '{line}'")
+            match, replace = line.split('=', maxsplit=1)
+            match = match.strip()
+            replace = replace.strip()
+            if Script.VALIDATE_REPLACE and match not in p.negative_prompt:
+                raise RuntimeError(f"Invalid negative_prompt replace, '{match}' is not in negative_prompt '{p.negative_prompt}'")
+            p.negative_prompt = p.negative_prompt.replace(match, replace)
 
 def applyEnableHr(p, v):
 	p.enable_hr = v
@@ -196,6 +188,7 @@ def tryInit():
 	for field, mode in enumerate(modes):
 		registerMode(mode, GridSettingMode(dry=True, type=str, apply=applyField(fields[field])))
 	
+	#registerMode("var", GridSettingMode(dry=True, type=str, apply=appedGigaField("vars")))
 	registerMode("Styles", GridSettingMode(dry=True, type=str, apply=applyStyles, validList=lambda: list(shared.prompt_styles.styles)))
 	registerMode("batch size", GridSettingMode(dry=True, type=str, apply=setbatch))
 	registerMode("Steps", GridSettingMode(dry=True, type=int, min=0, max=200, apply=applyField("steps")))
@@ -208,9 +201,13 @@ def tryInit():
 	registerMode("Sigma TMin", GridSettingMode(dry=True, type=float, min=0, max=1, apply=applyField("s_tmin")))
 	registerMode("Sigma TMax", GridSettingMode(dry=True, type=float, min=0, max=1, apply=applyField("s_tmax")))
 	registerMode("Sigma Noise", GridSettingMode(dry=True, type=float, min=0, max=1, apply=applyField("s_noise")))
+
 	registerMode("Out Width", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("inf_grid_out_width")))
 	registerMode("Out Height", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("inf_grid_out_height")))
 	registerMode("Out Scale", GridSettingMode(dry=True, type=float, min=0, apply=applyGigaField("inf_grid_out_scale")))
+	registerMode("out window", GridSettingMode(dry=True, type=int, apply=applyGigaField("upsamplewindow")))
+	registerMode("out key", GridSettingMode(dry=True, type=int, apply=applyGigaField("upsamplekey")))
+	
 	registerMode("group", GridSettingMode(dry=True, type=int, min=0, apply=applyGigaField("sortgroup")))
 
 	#not finalized. this sets the number of other items that will be compared to each to merge based on steps.
@@ -350,32 +347,18 @@ def a1111GridRunnerPreDryHook(gridRunner: core.GridRunner):
 	gridRunner.temp.oldVae = opts.sd_vae
 	gridRunner.temp.oldModel = opts.sd_model_checkpoint
 
-def a1111GridRunnerPostDryHook(gridRunner: core.GridRunner, promptkey: StableDiffusionProcessing) -> Processed:
-	processed: Processed = process_images(promptkey)
+def a1111GridRunnerPostDryHook(gridRunner: core.GridRunner, p3: StableDiffusionProcessing) -> Processed:
+	processed: Processed = process_images(p3)
 	#print(process_images)
 	if len(processed.images) < 1:
 		raise RuntimeError(f"Something went wrong! Image gen '{set.data}' produced {len(processed.images)} images, which is wrong")
 	print(f"There are {len(processed.images)} images available in this set")
 	for iterator, img in enumerate(processed.images):
-		if len(promptkey.prompt) - 1 < iterator:
+		if len(p3.prompt) - 1 < iterator:
 			print("image not in prompt list")
 			continue
 		if type(img) == numpy.ndarray:
 			img = Image.fromarray(img)
-		if 'inf_grid_out_width' in promptkey.giga or 'inf_grid_out_height' in promptkey.giga:
-			original_width, original_height = img.size
-			scale_factor = promptkey.giga.get('inf_grid_out_scale', 1.0)
-			
-			new_width = promptkey.giga.get('inf_grid_out_width', original_width) * scale_factor
-			new_height = promptkey.giga.get('inf_grid_out_height', original_height) * scale_factor
-
-			if 'inf_grid_out_width' in promptkey.giga and 'inf_grid_out_height' not in promptkey.giga:
-				new_height = int(original_height * (new_width / original_width))
-			elif 'inf_grid_out_height' in promptkey.giga and 'inf_grid_out_width' not in promptkey.giga:
-				new_width = int(original_width * (new_height / original_height))
-
-			img = img.resize((int(new_width), int(new_height)), resample=images.LANCZOS)
-
 		processed.images[iterator] = img
 		#images.save_image(img, path=os.path.dirname(set.filepath), basename="",
 		#	forced_filename=os.path.basename(set.filepath), save_to_dirs=False,info=info,
