@@ -676,7 +676,7 @@ class GridRunner:
 			set.filepath = os.path.join(self.basePath, *map(lambda v: v.path, set.values))
 			set.data = ', '.join(list(map(lambda v: f"{v.axis.title}={v.title}", set.values)))
 			set.flattenParams()
-			if set.skip or (not self.doOverwrite and checkPathFast(os.path.join(set.filepath))):
+			if set.skip or (not self.doOverwrite and checkPathFast(set.filepath + os.path.extsep + grid.format)):
 				self.totalSkip += 1
 			else:
 				self.totalRun += 1
@@ -749,6 +749,8 @@ class GridRunner:
 				iddd = id(p2)
 				#self.appliedSets.add()
 				self.appliedSets[iddd] = self.appliedSets.get(iddd, []) + [vSet]
+			if len(promptBatchList) < 1 :
+				return
 			DataLog(f'[mainRun] setup phase completed in {(datetime.datetime.now() - starttime).total_seconds():.2f}. batching now', True, 1)
 			DataLog(f'[mainRun]\ttotal time\tbatch size\ttime per image\ttime per image step\t sampler name\theight\twidth', False, 0)
 			if grid.sort == True:
