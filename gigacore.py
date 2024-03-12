@@ -416,6 +416,7 @@ class AxisValue:
 			self.description = grid.procVariables(val.get("description"))
 			self.skip = False
 			self.skipList: bool | dict = val.get("skip")
+			
 			if val.get("path") is not None:
 				self.path = str(val.get("path"))
 			else:
@@ -424,6 +425,8 @@ class AxisValue:
 				self.skip = self.skipList
 			elif self.skipList is not None and isinstance(self.skipList, dict):
 				self.skip = self.skipList.get("always")
+			if self.skipList is not None and isinstance(self.skipList, dict):
+				self.skipInvert = self.skipList.get("inverted", False)
 			self.params = fixDict(val.get("params"))
 			self.show = (str(grid.procVariables(val.get("show")))).lower() != "false"
 			if self.title is None or self.params is None:
@@ -558,6 +561,7 @@ class SingleGridCall:
 		skipDict = {'title': [], 'params': []}
 		titles = []
 		params = []
+		groups = []
 		for val in values:
 			if val.skip:
 				self.skip = True
@@ -568,6 +572,7 @@ class SingleGridCall:
 					skipDict['params'] = skipDict['params'] + val.skipList['params']
 				if 'group' in val.skipList.keys():
 					skipDict['group'] = skipDict['group'] + val.skipList['group']
+				skipInverted = val.skipList.get('inverted', False)
 				
 
 			if hasattr(val, 'title'):
@@ -575,18 +580,39 @@ class SingleGridCall:
 			if hasattr(val, 'params'):
 				params.append(str(val.params))
 			if hasattr(val, 'group'):
-				params.append(str(val.group))
-		skipTitle = skipDict['title']
-		skipParams = skipDict['params']
-		if skipTitle is not None:
-			for item in skipTitle:
+				groups.append(int(val.group))
+		
+		if skipInverted:
+			self.skip = True
+			if skipDict['title'] is not None:
+				for item in skipDict['title']:
+					item = str(item).lower()
+					if item in map(str.lower, str(titles)):
+						self.skip = False
+			if skipDict['params'] is not None:
+				for item in skipDict['params']:
+					if any(item in string for string in str(params).lower()):
+						self.skip = False
+			if skipDict['group'] is not None:
+				for item in skipDict['group']:
+					item = int(item)
+					if item in groups:
+						self.skip = False	
+		if skipDict['title'] is not None:
+			for item in skipDict['title']:
 				item = str(item).lower()
 				if item in map(str.lower, str(titles)):
 					self.skip = True
-		if skipParams is not None:
-			for item in skipParams:
+		if skipDict['params'] is not None:
+			for item in skipDict['params']:
 				if any(item in string for string in str(params).lower()):
 					self.skip = True
+		if skipDict['group'] is not None:
+			for item in skipDict['group']:
+				item = int(item)
+				if item in groups:
+					self.skip = True
+		
 		if gridCallInitHook is not None:
 			gridCallInitHook(self)
 
